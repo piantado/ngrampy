@@ -1,0 +1,43 @@
+
+ngrampy is a python class for manipulating google (or similarly formatted) n-gram data. It provides a python class for very basic table manipulations such that operations on tables are mimiced by operations on the hard drive, with huge n-gram files that cannot be read into RAM. This takes a lot of hard drive time, but can handle arbitrary file sizes (5~20gb is typical). This is *not* optimized for speed, since these things take a long time anyways and are typically run once. 
+
+NOTE: In general, you should use this library with 
+ 
+   export PYTHONIOENCODING=utf-8
+ 
+so that you can handle utf-8 characters from google. 
+
+========================================================
+== LICENSE
+========================================================
+
+ngrampy is licensed under GPL 3.0
+
+========================================================
+== INSTALLATION:
+========================================================
+
+Put this library somewhere--mine lives in /home/piantado/mit/Libraries/ngrampy/
+	
+Set the PYTHONPATH environment variable to point to ngrampy/:
+	
+	export PYTHONPATH=$PYTHONPATH:/home/piantado/Desktop/mit/Libraries/ngrampy
+	
+You can put this into your .bashrc file to make it loaded automatically when you open a terminal. On ubuntu and most linux, this is:
+	
+	echo 'export PYTHONPATH=$PYTHONPATH:/home/piantado/Desktop/mit/Libraries/ngrampy' >> ~/.bashrc
+
+You can also do
+  
+        echo 'export PYTHONIOENCODING=utf-8' >> ~/.bashrc
+        
+although this will change your default python encoding. 
+	
+And you should be ready to use the library
+
+========================================================
+== TODO: 
+========================================================
+
+
+

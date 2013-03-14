@@ -1,0 +1,5 @@
+This is for computing trigrams with matched properties (e.g. matched unigram and bigram stats). So you can find trigrams that are controlled on all but the joint probability, for instance. I once tried to do a project involving them. 
+
+First build a "database" with compute_trigram_stats.py. This will take google and build a bigger file with each trigram and other measures such as the unigram and bigram probabilities. 
+
+Then, run find_matched_items.py, which takes the output fo compute_trigram_stats (assumed to live in /ssd/trigram-stats), and then subsamples it, and then sorts to generate items which are matched. It outputs to stdout the number of items in the stack, the item number, and the two lines of /ssd/trigram-stats which are matched. 
