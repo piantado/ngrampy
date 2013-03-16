@@ -1,0 +1,6 @@
+This computes surprisal measures for 11 languages from Piantadosi, Tily, & Gibson's word length paper. It is a complete re-implementation, using the LineFile class to handle the big corpus. This handles unicode and filters
+the corpora somewhat differently than the original paper, but the results are largely the same. 
+
+For fastest running, you should do this on a solid state drive. 
+
+The analysis throws out many of the garbarge words on google by using vocabularies from OpenSubtlex, taking the most frequent 25k words. The Extract_Vocabularies directory contains a script to extract these vocabularies. 
