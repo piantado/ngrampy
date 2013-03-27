@@ -10,19 +10,19 @@ for(L in c("eng-gb-2", "eng-us-2")){
 	d <- read.table(paste("Surprisal/",L,".", Y, ".txt", sep=""), header=T)
 	
 	d <- d[order(d$Log.Frequency, decreasing=T), ]
-	d <- d[ 1:5000, ] # keep only the top 25k
+	d <- d[ 1:25000, ] # keep only the top 25k
 	
 	# Very simple--just nonparametric correlations
 	# NOTE: Email Steve for fancier scripts and analysis (partials, bootstrapping, etc.)
 	sc <- cor.test(d$Surprisal, d$Orthographic.Length, method="spearman")
-	fc <- cor.test(-d$Log.Frequency, d$Orthographic.Length, method="spearman")  ## Negative log freq here so that its on the same scale (we didn't normalize freq--that's slower
+	fc <- cor.test(-d$Log.Frequency, d$Orthographic.Length, method="spearman")  ## Negative log freq here so that its on the same scale (we didn't normalize freq)
 
 	D <- rbind(D, data.frame( Language=L,
 				   Year=Y,
-				  Surprisal.cor=sc$estimate,
-				  Frequency.cor=fc$estimate,
-				  Surprsial.p.value=sc$p.value,
-				  Frequency.p.value=fc$p.value))
+				   Surprisal.cor=sc$estimate,
+				   Frequency.cor=fc$estimate,
+				   Surprsial.p.value=sc$p.value,
+				   Frequency.p.value=fc$p.value))
 }
 }
 
