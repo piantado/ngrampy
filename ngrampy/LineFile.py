@@ -60,8 +60,18 @@ CLEAN_TMP = False # when we create temporary files, do we remove them when we're
 SORT_DEFAULT_LINES = 10000000 # how many lines to sorted at a time in RAM when we sort a large file?
 ENCODING = 'utf-8'
 
-spaceRegex = re.compile("\s") # for splitting on spaces, etc.
+# Set this so we can write stderr
+sys.stdout = codecs.getwriter(ENCODING)(sys.stdout)
+sys.stderr = codecs.getwriter(ENCODING)(sys.stderr)
 
+IO_BUFFER_SIZE = int(100e6) # approx size of input buffer 
+
+# Some friendly Regexes. May need to change encoding here for other encodings?
+re_SPACE = re.compile(r"\s", re.UNICODE) # for splitting on spaces, etc.
+re_underscore = re.compile(r"_[A-Za-z\-\_]+", re.UNICODE) # for filtering out numbers and whitespace
+re_collapser  = re.compile(r"[\d\s]", re.UNICODE) # for filtering out numbers and whitespace
+non_whitespace_matcher = re.compile(r"[^\s]", re.UNICODE)
+		
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 # # Some helpful functions
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
@@ -73,7 +83,7 @@ def read_and_parse(inn, keys):
 		line = inn.readline().strip()
 		if not line: return line, None, None
 		else:
-			parts = re.split("\t", line)
+			parts = re_SPACE.split(line)
 			return line, parts, "\t".join([parts[x] for x in keys])
 
 def systemcall(x):
@@ -114,6 +124,7 @@ class LineFile:
 			force_nocopy - Primarily for debugging, this prevents us from copying a file and just uses the path as is
 					you should pass files a list of length 1 which is the file, and path should be None
 					as in, LineFile(files=["/ssd/trigram-stats"], header="w1 w2 w3 c123 c1 c2 c3 c12 c23 unigram bigram trigram", force_nocopy=True)
+			front_end_filter - a filtering that may remove/collapse some google lines for speed. 
 		"""
 		if force_nocopy:
 			assert(len(files) == 1)
@@ -143,7 +154,7 @@ class LineFile:
 		# and store some variables
 		self.tmppath = self.path+".tmp"
 		
-		if isinstance(header, str): header = spaceRegex.split(header)
+		if isinstance(header, str): header = re_SPACE.split(header)
 		self.header = header
 		
 	def setheader(self, *x): self.header = x
@@ -163,8 +174,8 @@ class LineFile:
 		elif isinstance(x, list): return map(self.to_column_number, x)
 		elif isinstance(x, str): 
 		
-			if spaceRegex.search(x):  # if spaces, treat it as an array and map
-				return map(self.to_column_number, spaceRegex.split(x))
+			if re_SPACE.search(x):  # if spaces, treat it as an array and map
+				return map(self.to_column_number, re_SPACE.split(x))
 			
 			# otherwise, a single string so just find the header that equals it
 			for i in xrange(len(self.header)):
@@ -223,7 +234,7 @@ class LineFile:
 		os.remove(self.tmppath)
 	def cp(self, f): shutil.cp(self.path, f)
 	
-	def extract_columns(self, line, keys, dtype=unicode, sep="\t"):
+	def extract_columns(self, line, keys, dtype=unicode):
 		"""'ut
 			Extract some columns from a single line. Assumes that keys are numbers (e.g. already mapped through to_column_number)
 			and wil return the columns as the specified dtype
@@ -235,7 +246,7 @@ class LineFile:
 		"""
 		if isinstance(keys, str): keys = listifnot(self.to_column_number(keys))
 		
-		parts = re.split(sep, line)
+		parts = re_SPACE.split(line)
 		
 		if isinstance(dtype,list):
 			return [ dtype[i](parts[x]) for i,x in enumerate(keys)]
@@ -244,50 +255,63 @@ class LineFile:
 			
 
 		
-	def clean(self, tab=True, lower=True, alphanumeric=True, count_columns=True):
+	def clean(self, columns=None, lower=True, alphanumeric=True, count_columns=True, nounderscores=True, echo_toss=False):
 		"""
 			This does several things:
+				columns - how many cols should there be? If None, then we use the first line
 				tab - Replace all whitspace on each line with tabs
 				lower - convert to lowercase
 				alphanumeric - toss lines with non-letter category characters (in unicode)
 				count_columns - if True, we throw out rows that don't have the same number of columns as the first line
-			
+				nounderscores - if True, we remove everything matchin _[^\s]\s -> " "
+				echo_toss - tell us who was removed
+				already_tabbed - if true, we know to split cols on tabs; otherwise whitespace
 		"""
 		self.mv_tmp()
 		
-		col_count = None
+		toss_count = 0
+		total_count = 0
 		
 		o = codecs.open(self.path, "w", ENCODING)
-		collapser = re.compile("[\d\s]", re.UNICODE) # for filtering out numbers and whitespace
+		
 		for l in self.lines():
+			total_count += 1
 			keep = True
+			
 			if alphanumeric: # if we require alphanumeric
-				collapsed = collapser.sub("", l) # replace digits and spaces with nothing so allw e have are characters
+				collapsed = re_collapser.sub("", l) # replace digits and spaces with nothing so allw e have are characters
 				for k in collapsed:		
 					n = unicodedata.category(k)
 					if n == "Ll" or n == "Lu": pass
 					else: 
+						toss_count+=1
 						keep = False # throw out lines with non-letter categories
+						if echo_toss: print >>sys.stderr, "# Tossed line that was non-alphanumeric:", l
 						break
 			
 			if not keep: continue # we can skip early here if we want
 			# clean up according to specs
-			if tab: l = re.sub("\s", "\t", l)
+			if nounderscores: l = re_underscore.sub("", l)			
 			if lower: l = l.lower()
 			
 			# check the number of columns
 			if count_columns: 
-				cn = len(re.split("\t", l))
-				if col_count is None: 
-					col_count = cn # save the first line
-				elif col_count != cn:
+				cols = re_SPACE.split(l)
+				cn = len(cols)
+				if columns is None: columns = cn # save the first line
+				
+				if columns != cn or any([not non_whitespace_matcher.search(ci) for ci in cols]):
 					keep = False
-					print >>sys.stderr, "# Tossed line with bad column count (",cn,"):", l
-			
+					toss_count+=1
+					if echo_toss: print >>sys.stderr, "# Tossed line with bad column count (",cn,"):", l
+				
 			# and print if we should keep it
+			#print keep, cn, re_SPACE.split(l), l
 			if keep: print >>o, l
 			
 		o.close()
+		
+		print >>sys.stderr, "# Clean tossed %i of %i lines" % (toss_count, total_count)
 		
 		if CLEAN_TMP: self.rm_tmp()
 		
@@ -305,7 +329,7 @@ class LineFile:
 		self.mv_tmp()
 		o = codecs.open(self.path, "w", ENCODING)
 		for l in  self.lines():
-			parts = re.split('\t', l)
+			parts = re_SPACE.split(l)
 			keep = True
 			for c in cols: # for each thing to check, check it!
 				if vocabulary_d.get(parts[c], False) is invert:  # keep things in vocabulary unless invert
@@ -322,13 +346,14 @@ class LineFile:
 			Takes all rows which are equal on the keys and sums the remaining keys. 
 			Anything not in keys or sumkeys, there are no guarantees for
 		"""
-		self.mv_tmp()
 		
 		keys    = listifnot(self.to_column_number(keys))
 		sumkeys = listifnot(self.to_column_number(sumkeys))
 		
-		if assert_sorted:
+		if assert_sorted: # must call before we mv_tmp
 			self.assert_sorted(keys,  allow_equal=True)
+		
+		self.mv_tmp()
 		
 		o = codecs.open(self.path, "w", ENCODING)
 		old_compkey = None
@@ -340,8 +365,10 @@ class LineFile:
 			compkey = "\t".join([parts[x] for x in keys])
 			
 			if compkey == old_compkey: # sum up:
-			
-				for x in sumkeys: sums[x] += int(parts[x])
+				try:
+					for x in sumkeys: sums[x] += int(parts[x])
+				except IndexError:
+					print "IndexError:", parts, sumkeys
 				
 			else: # else print out the previous line, if nothing
 				
@@ -354,8 +381,11 @@ class LineFile:
 				
 				# and update the new 
 				sums = defaultdict(int)
-				for x in sumkeys: sums[x] += int(parts[x])
-				
+				try:
+					for x in sumkeys: sums[x] += int(parts[x])
+				except IndexError:
+					print "IndexError:", parts, sumkeys
+					
 				#print (old_compkey<compkey), old_compkey, "=?=", compkey
 				assert(old_compkey < compkey) # better be in sorted order, or this fails
 				old_compkey = compkey
@@ -397,6 +427,8 @@ class LineFile:
 	def delete(self):
 		os.remove(self.path)
 		os.remove(self.tmppath)
+	def delete_tmp(self):
+		os.remove(self.tmppath)
 		
 	def make_column(self, newname, function, keys):
 		"""
@@ -418,7 +450,7 @@ class LineFile:
 		o = codecs.open(self.path, "w", ENCODING)
 
 		for line in self.lines():
-			parts = re.split("\t", line)
+			parts = re_SPACE.split(line)
 			print >>o, line+"\t"+function(*[parts[i] for i in keys])
 			
 		self.header.extend(listifnot(newname))
@@ -458,7 +490,7 @@ class LineFile:
 		for l in self.lines(yieldfinal=True):
 			
 			# on EOF or read in enough, process
-			parts = spaceRegex.split(l)
+			parts = re_SPACE.split(l)
 
 			if (not l) or len(current_lines) >= lines:
 				sort_tmp_path = self.path+".sorted."+str(temp_id)
@@ -567,6 +599,7 @@ class LineFile:
 		total_context_count = 0
 		total_word_frequency = 0
 		prev_w = None
+		print "Word\tOrthographic.Length\tSurprisal\tLog.Frequency\tTotal.Context.Count"
 		for parts in self.lines(parts=True, tmp=False):
 			
 			w = parts[W]
@@ -576,6 +609,8 @@ class LineFile:
 			if w != prev_w and prev_w is not None:
 				# print a bunch of measures
 				print "\""+prev_w+"\"", "\t", len(prev_w), "\t", sumSurprisal / total_word_frequency, "\t", log2(total_word_frequency), "\t", total_context_count
+				
+				total_context_count = 0
 				sumSurprisal = 0
 				total_word_frequency = 0
 			
@@ -599,12 +634,20 @@ class LineFile:
 			- yieldfinal - give back a final '' 
 		"""
 		
-		if tmp:	inn = codecs.open(self.tmppath, 'r', ENCODING)
-		else:   inn = codecs.open(self.path, 'r', ENCODING)
+		if tmp:	inn = codecs.open(self.tmppath, 'r', ENCODING, 'strict', IO_BUFFER_SIZE) # Very much faster than line buffering!
+		else:   inn = codecs.open(self.path,    'r', ENCODING, 'strict', IO_BUFFER_SIZE)
 		
+		#text = inn.readlines(IO_BUFFER_SIZE)
+		#while text != []:
+			#for line in text:
+				#line = line.strip()
+				#if parts: yield re_SPACE.split(line)
+				#else:     yield line
+			#text = inn.readlines(IO_BUFFER_SIZE)
+				
 		for line in inn:
 			line = line.strip()
-			if parts: yield spaceRegex.split(line)
+			if parts: yield re_SPACE.split(line)
 			else:     yield line
 			
 		if yieldfinal: yield ''

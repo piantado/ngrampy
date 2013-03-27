@@ -1,11 +1,22 @@
 
 ngrampy is a python class for manipulating google (or similarly formatted) n-gram data. It provides a python class for very basic table manipulations such that operations on tables are mimiced by operations on the hard drive, with huge n-gram files that cannot be read into RAM. This takes a lot of hard drive time, but can handle arbitrary file sizes (5~20gb is typical). This is *not* optimized for speed, since these things take a long time anyways and are typically run once. 
 
+Usually, it makes more sense to process the google files once, concatinging and collapsing by some dates into a large file with all the ngrams (since this may take a few days). For this, the process-google.py script is fastest (much faster than LineFile). In collapsing dates, it makes a much smaller file (~10GB for eng-us 2grams)
+	gzip -dc /home/piantado/Desktop/GoogleBooks/eng-us-all/2/* | python process-google.py /tmp/G-eng-us-all
+	Or, unpigz is about 2x as fast as gzip on my computer (it multithreads fetching, file io, etc.)
+
+This perl script does not do any fancy filtering of the ngrams.
+	
+
+To download data from google, you can use download.py
+
 NOTE: In general, you should use this library with 
  
    export PYTHONIOENCODING=utf-8
  
 so that you can handle utf-8 characters from google. 
+
+NOTE: This splits columns in the text files by whitespace; if you want something else, you should merge with underscores or something
 
 ========================================================
 == LICENSE
