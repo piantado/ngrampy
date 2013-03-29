@@ -652,10 +652,20 @@ class LineFile:
 			
 		if yieldfinal: yield ''
 		inn.close()
-	
-	def subsample(self, N=1000000):
+		
+	def __len__(self):
 		"""
-			make me a smaller copy of myself by randomly subsampling
+			How many total lines?
+		"""
+		l = 0
+		for k in self.lines(tmp=False): l += 1
+		return l
+		
+	def subsample_lines(self, N=1000000):
+		"""
+			Make me a smaller copy of myself by randomly subsampling *lines*
+			not according to counts. This is useful for creating a temporary
+			file 
 			NOTE: N must fit into memory
 		"""
 		
@@ -675,4 +685,33 @@ class LineFile:
 		o = codecs.open(self.path, 'w', ENCODING)
 		for line in sample: print >>o, line
 		o.close()
+	
+	#def subsample(self, N, pcol, smoother=0.0, keep_zero_counts=True):
+		#"""
+			#Subsample myself via counts with the existing probability distribution.
+			#- N - the total sample size we end up with.
+			#- pcol - the column we use to estimate probabilities
+			#- 
+			#Note that this assumes a multinomial on trigrams, which may not be accurate. If you started from a corpus, this will NOT in general keep
+			#counts consistent with a corpus. 
+			
+			#This uses a conditional beta distribution, once for each line for a total of N.
+		#"""
 		
+		#L = len(self)
+		#pcol = self.to_column_number(pcol)
+		#Z = self.sum_column(pcol)
+		
+		### TODO: CREATE SUM_COLUMN
+		
+		#self.mv_tmp()
+		
+		#for parts in self.lines(parts=True, tmp=False):
+			#p = int(parts[pcol]) 
+			#newcnt = numpy.random.binomial(N,p/Z)
+			#N = N-newcnt
+			
+			#if keep_zero_counts or newcnt>0:
+				### TODO: PRINT OUT
+
+

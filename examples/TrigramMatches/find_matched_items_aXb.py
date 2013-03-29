@@ -32,7 +32,7 @@ G = LineFile(files=["/ssd/trigram-stats"], path="/ssd/subsampled-stimuli", heade
 
 # draw a subsample
 #if SUBSAMPLE_N is not None:
-	#G.subsample(N=SUBSAMPLE_N)
+	#G.subsample_lines(N=SUBSAMPLE_N)
 
 # we need to resort  this so that we can have w1 and w3 equal and then all the n-grams matched
 G.sort("w1 w3 unigram bigram trigram", lines=1000000)

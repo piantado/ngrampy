@@ -24,7 +24,7 @@ porno_vocabulary = [ l.strip() for l in open(BAD_WORD_FILE, "r") ]
 G.restrict_vocabulary("w1 w2 w3", porno_vocabulary, invert=True)
 
 # and then subsample
-G.subsample(N=SUBSAMPLE_N)
+G.subsample_lines(N=SUBSAMPLE_N)
 
 # and make sure we are sorted for the below
 G.sort("unigram bigram trigram", dtype=float)

@@ -80,8 +80,5 @@ G.make_column("trigram",  logsum, "cnt123")
 
 G.sort("unigram bigram trigram", dtype=float)
 
-# Let's just save a smaller file for R-ing
-#G.subsample_to_file("trigram-subsample.txt")
-
 ##G.cat()
 G.head()
