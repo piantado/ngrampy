@@ -9,12 +9,12 @@
 	
 	When you run this, if you get an encoding error, you may need to set the environment to 
 	
-		export PYTHONIOENCODING=utf-8
-		
+		export PYTHONIOENCODING=utf-8	
 		
 	
 	TODO: 
 		- Make this so each function call etc. will output what it did
+		- Make a "separator" and make sure that all the relevant functions use this (instead of space)
 	NOTE:
 		- Column names cannot contain spaces. 
 		- do NOT change the printing to export funny, because then it will collapse characters to ascii in a bad way
@@ -51,6 +51,8 @@ import codecs # for writing utf-8
 from math import log
 from collections import defaultdict
 from copy import deepcopy
+
+import numpy
 
 # A temporary file like /tmp
 NGRAMPY_DEFAULT_PATH = "/tmp" #If no path is specified, we go here
@@ -106,6 +108,15 @@ def myassert(tf, s):
 	assert(tf)
 	
 def log2(x): return log(x,2.)
+
+def c2H(x):
+	# Normalize counts and compute entropy
+	
+	x =numpy.array(x,dtype=float)
+	x = x[x>0] # remove zeros
+	Z = float(numpy.sum(x))
+	lx = numpy.log(x) - numpy.log(Z)
+	return -numpy.sum( (x/Z) * lx )
 
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 # # Class definition
@@ -187,7 +198,7 @@ class LineFile:
 		
 	def delete_columns(self, cols):
 		
-		# make sure these are increasing so we can delete in order
+		# make sure these are *decreasing* so we can delete in order
 		cols = sorted(listifnot(self.to_column_number(cols)), reverse=True)
 		
 		self.mv_tmp()
@@ -221,6 +232,7 @@ class LineFile:
 		"""
 			Move myself to my temporary file, so that I can cat to my self.path
 		"""
+		#print "# >>", self.path, self.tmppath
 		shutil.move(self.path, self.tmppath)
 		
 	def rename(self, n):
@@ -280,7 +292,7 @@ class LineFile:
 			
 			if alphanumeric: # if we require alphanumeric
 				collapsed = re_collapser.sub("", l) # replace digits and spaces with nothing so allw e have are characters
-				for k in collapsed:		
+				for k in collapsed:
 					n = unicodedata.category(k)
 					if n == "Ll" or n == "Lu": pass
 					else: 
@@ -573,7 +585,66 @@ class LineFile:
 		self.header.extend([other.header[i] for i in tocopy ]) # copy the header names from other
 		
 		if CLEAN_TMP: self.rm_tmp()
+	
+	def print_conditional_entropy(self, W, cntXgW, downsample=10000, assert_sorted=True, pre="", preh="", header=True):
+		"""
+			Print the entropy H[X | W] for each W, assuming sorted by W.
+			Here, P(X|W) is given by unnormalized cntXgW
+			Also prints the total frequency
+			downsample - also prints the downsampled measures, where we only have downsample counts total. An attempt to correct H bias
+		"""
 		
+		if assert_sorted:
+			self.assert_sorted(listifnot(W),  allow_equal=True) # allow W to be true
+			
+		
+		W = self.to_column_number(W)
+		assert(not isinstance(W,list))
+		#Xcol = self.to_column_number(X)
+		#assert(not isinstance(X,list))
+		
+		cntXgW = self.to_column_number(cntXgW)
+		assert(not isinstance(cntXgW,list))
+		
+		if assert_sorted: self.assert_sorted(listifnot(W),  allow_equal=True)
+		
+		wcounts = []
+		prevW = None
+		if header: print preh+"Word\tFrequency\tContextCount\tContextEntropy\tContextEntropy2\tContextEntropy5\tContextEntropy10\tContextEntropy%i\tContextCount%i" % (downsample, downsample)
+		for parts in self.lines(parts=True, tmp=False):
+			
+			w = parts[W]
+			#c = parts[Xcol]
+			cnt = int(parts[cntXgW])
+			
+			if w != prevW:
+				if prevW is not None:
+					sumcount = float(sum(wcounts))
+					wcounts = numpy.array(wcounts, dtype=float)
+					
+					# And do the downsample measures
+					dp = numpy.sort(numpy.random.multinomial(downsample, wcounts / sumcount)) # sort so we can take top on next line
+					tp2, tp5, tp10 = dp[-2:], dp[-5:], dp[-10:]
+										
+					print pre, prevW, "\t", sumcount, "\t", len(wcounts), "\t", c2H(wcounts), "\t", c2H(tp2), "\t", c2H(tp5), "\t", c2H(tp10), "\t", c2H(dp), "\t", numpy.sum(dp>0)
+				
+				wcounts = [cnt]
+				prevW = w
+			else:
+				wcounts.append(cnt)
+				
+		
+		## AND PRINT THE LAST ONE: TODO: FIX THIS STUPIDITY
+		prevW = w
+		sumcount = float(sum(wcounts))
+		wcounts = numpy.array(wcounts, dtype=float)
+		
+		# And do the downsample measures
+		dp = numpy.sort(numpy.random.multinomial(downsample, wcounts / sumcount)) # sort so we can take top on next line
+		tp2, tp5, tp10 = dp[-2:], dp[-5:], dp[-10:]
+							
+		print pre, prevW, "\t", sumcount, "\t", len(wcounts), "\t", c2H(wcounts), "\t", c2H(tp2), "\t", c2H(tp5), "\t", c2H(tp10), "\t", c2H(dp), "\t", numpy.sum(dp>0)
+			
 	def print_average_surprisal(self, W, CWcnt, Ccnt, assert_sorted=True):
 		"""
 			Compute the average in-context surprisal, as in Piantadosi, Tily Gibson (2011)
@@ -686,32 +757,54 @@ class LineFile:
 		for line in sample: print >>o, line
 		o.close()
 	
-	#def subsample(self, N, pcol, smoother=0.0, keep_zero_counts=True):
-		#"""
-			#Subsample myself via counts with the existing probability distribution.
-			#- N - the total sample size we end up with.
-			#- pcol - the column we use to estimate probabilities
-			#- 
-			#Note that this assumes a multinomial on trigrams, which may not be accurate. If you started from a corpus, this will NOT in general keep
-			#counts consistent with a corpus. 
+	def sum_column(self, col, cast=int, tmp=True):
+		
+		thesum = 0
+		col = self.to_column_number(col)
+		
+		for parts in self.lines(parts=True, tmp=tmp):
+			thesum += cast(parts[col])
+
+		return thesum
+		
+	def downsample_tokens(self, N, ccol, keep_zero_counts=False):
+		"""
+			Subsample myself via counts with the existing probability distribution.
+			- N - the total sample size we end up with.
+			- ccol - the column we use to estimate probabilities. Unnormalized, non-log probs (e.g. counts)
 			
-			#This uses a conditional beta distribution, once for each line for a total of N.
-		#"""
-		
-		#L = len(self)
-		#pcol = self.to_column_number(pcol)
-		#Z = self.sum_column(pcol)
-		
-		### TODO: CREATE SUM_COLUMN
-		
-		#self.mv_tmp()
-		
-		#for parts in self.lines(parts=True, tmp=False):
-			#p = int(parts[pcol]) 
-			#newcnt = numpy.random.binomial(N,p/Z)
-			#N = N-newcnt
+			NOTE: this assumes a multinomial on trigrams, which may not be accurate. If you started from a corpus, this will NOT in general keep
+			counts consistent with a corpus. 
 			
-			#if keep_zero_counts or newcnt>0:
-				### TODO: PRINT OUT
+			This uses a conditional beta distribution, once for each line for a total of N.
+			See pg 12 of w3.jouy.inra.fr/unites/miaj/public/nosdoc/rap2012-5.pdf
+		"""
+		
+		self.header.extend(ccol)
+		ccol = self.to_column_number(ccol)
+		
+		self.mv_tmp()
+		
+		Z = self.sum_column(ccol, tmp=True) ## TODO: CREATE SUM_COLUMN, giving the normalizer for the probability (counts)
+		
+		o = codecs.open(self.path, "w", ENCODING)
+		for parts in self.lines(parts=True, tmp=True):
+			
+			cnt = int(parts[ccol]) 
+			
+			# Randomly sample
+			if N > 0: newcnt = numpy.random.binomial(N,float(cnt)/float(Z))
+			else:     newcnt = 0
+			
+			# Update the conditional multinomial
+			N = N-newcnt # samples to draw
+			Z = Z-cnt    # normalizer for everything else
+			
+			parts[ccol] = str(newcnt) # update this
+			
+			if keep_zero_counts or newcnt > 0:
+				print >>o, '\t'.join(parts)
+			
+		o.close()
 
 

@@ -15,14 +15,14 @@ sort.by.frequency <- function(d) { d[order(d$Log.Frequency, decreasing=T),] }
 # Define the vocabulary -- take the most frequent words in some year
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-VOCAB <- as.character(sort.by.frequency(read.table("Surprisal/eng-us-2.1825.txt", header=T))[1:5000,"Word"])
+VOCAB <- as.character(sort.by.frequency(read.table("Surprisal/eng-us-2.1950.txt", header=T))[1:25000,"Word"])
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # Now analyze:
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 D <- NULL
-for(Y in c("1500", "1525", "1550", "1600", "1625", "1650", "1675", "1700", "1725", "1750", "1775", "1800")) { 
+for(Y in c("1900", "1925", "1950", "1975", "2000")){#"1500", "1525", "1550", "1600", "1625", "1650", "1675", "1700", "1725", "1750", "1775", "1800")) { 
 for(L in c("eng-gb-2", "eng-us-2")){
 
 	d <- read.table(paste("Surprisal/", L, ".", Y, ".txt", sep=""), header=T)
@@ -58,17 +58,17 @@ print(D)
 # Build the monster data frame
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-
-D <- NULL
-for(Y in c("1500", "1525", "1550", "1600", "1625", "1650", "1675", "1700", "1725", "1750", "1775", "1800")) { 
-for(L in c("eng-us-2")){
-
-	d <- read.table(paste("Surprisal/", L, ".", Y, ".txt", sep=""), header=T)
-	d <- d[is.element(d$Word, VOCAB),]
-	d$Total.Log.Frequency <- log(sum(2.0**d$Log.Frequency)) # TODO:Logsumexp
-	d$Year <- as.numeric(Y)
-	d$Language <- L
-	
-	D <- rbind(D, d)
-}
-}
+# 
+# D <- NULL
+# for(Y in c("1500", "1525", "1550", "1600", "1625", "1650", "1675", "1700", "1725", "1750", "1775", "1800")) { 
+# for(L in c("eng-us-2")){
+# 
+# 	d <- read.table(paste("Surprisal/", L, ".", Y, ".txt", sep=""), header=T)
+# 	d <- d[is.element(d$Word, VOCAB),]
+# 	d$Total.Log.Frequency <- log(sum(2.0**d$Log.Frequency)) # TODO:Logsumexp
+# 	d$Year <- as.numeric(Y)
+# 	d$Language <- L
+# 	
+# 	D <- rbind(D, d)
+# }
+# }
