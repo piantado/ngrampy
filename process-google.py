@@ -9,7 +9,7 @@ import re
 import sys
 
 import argparse
-parser = argparse.ArgumentParser(description='MCMC for magic box!')
+parser = argparse.ArgumentParser(description='Process google ngrams into year bins')
 parser.add_argument('--out', dest='out-path', type=str, default="/tmp/", nargs="?", help='The file name for output (year appended)')
 parser.add_argument('--year-bin', dest='year-bin', type=int, default=25, nargs="?", help='How to bin the years')
 args = vars(parser.parse_args())
