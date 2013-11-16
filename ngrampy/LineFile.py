@@ -38,7 +38,7 @@
 	
     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 """
-
+from __future__ import division
 import os
 import sys
 import re
@@ -47,13 +47,18 @@ import heapq
 import shutil
 import random
 import codecs # for writing utf-8
-
+import itertools
 from math import log
-from collections import defaultdict
+from collections import Counter
 from copy import deepcopy
 
-#import numpypy # For use with pypy
-import numpy
+try:
+	import numpy
+except ImportError:
+	try:
+		import numpypy as numpy
+	except ImportError:
+		pass
 
 # A temporary file like /tmp
 NGRAMPY_DEFAULT_PATH = "/tmp" #If no path is specified, we go here
@@ -86,7 +91,7 @@ def read_and_parse(inn, keys):
 		line = inn.readline().strip()
 		if not line: return line, None, None
 		else:
-			parts = re_SPACE.split(line)
+			parts = line.split()
 			return line, parts, "\t".join([parts[x] for x in keys])
 
 def systemcall(x):
@@ -95,35 +100,35 @@ def systemcall(x):
 	"""
 	if ECHO_SYSTEM: print >>sys.stderr, x
 	os.system(x)
-		
-def ifelse(x,y,z):
-	if x: return y
-	else: return z
 
+def ifelse(x, y, z):
+	return y if x else z
+		
 def listifnot(x):
 	if isinstance(x, list): return x
 	else:                   return [x]
 	
 def myassert(tf, s):
-	if not tf: print "*** Assertion fail: ",s
+	if not tf: print >>sys.stderr, "*** Assertion fail: ",s
 	assert(tf)
 	
 def log2(x): return log(x,2.)
 
-def c2H(x):
-	# Normalize counts and compute entropy
-	
-	x =numpy.array(x,dtype=float)
-	x = x[x>0] # remove zeros
-	Z = float(numpy.sum(x))
-	lx = numpy.log(x) - numpy.log(Z)
-	return -numpy.sum( (x/Z) * lx )
+def c2H(counts):
+	# Normalize counts and compute entropy	
+	total = 0.0
+	clogc = 0.0
+	for c in counts:
+		total += c
+		clogc += c * log2(c)
+	return -(clogc/total - log2(total))
+
 
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 # # Class definition
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 
-class LineFile:
+class LineFile(object):
 	
 	def __init__(self, files, header=None, path=None, force_nocopy=False):
 		"""
@@ -166,7 +171,7 @@ class LineFile:
 		# and store some variables
 		self.tmppath = self.path+".tmp"
 		
-		if isinstance(header, str): header = re_SPACE.split(header)
+		if isinstance(header, str): header = header.split()
 		self.header = header
 		
 	def setheader(self, *x): self.header = x
@@ -187,7 +192,7 @@ class LineFile:
 		elif isinstance(x, str): 
 		
 			if re_SPACE.search(x):  # if spaces, treat it as an array and map
-				return map(self.to_column_number, re_SPACE.split(x))
+				return map(self.to_column_number, x.split())
 			
 			# otherwise, a single string so just find the header that equals it
 			for i in xrange(len(self.header)):
@@ -259,7 +264,7 @@ class LineFile:
 		"""
 		if isinstance(keys, str): keys = listifnot(self.to_column_number(keys))
 		
-		parts = re_SPACE.split(line)
+		parts = line.split()
 		
 		if isinstance(dtype,list):
 			return [ dtype[i](parts[x]) for i,x in enumerate(keys)]
@@ -268,7 +273,7 @@ class LineFile:
 			
 
 		
-	def clean(self, columns=None, lower=True, alphanumeric=True, count_columns=True, nounderscores=True, echo_toss=False):
+	def clean(self, columns=None, lower=True, alphanumeric=True, count_columns=True, nounderscores=True, echo_toss=False, filter_fn=None, modifier_fn=None):
 		"""
 			This does several things:
 				columns - how many cols should there be? If None, then we use the first line
@@ -279,6 +284,8 @@ class LineFile:
 				nounderscores - if True, we remove everything matchin _[^\s]\s -> " "
 				echo_toss - tell us who was removed
 				already_tabbed - if true, we know to split cols on tabs; otherwise whitespace
+				filter_fn - User-provided boolean filtering function
+				modifier_fn - User-provided function to modify the line (downcase etc)
 		"""
 		self.mv_tmp()
 		
@@ -290,6 +297,13 @@ class LineFile:
 		for l in self.lines():
 			total_count += 1
 			keep = True
+
+			if filter_fn and not filter_fn(l):
+				keep = False
+				if echo_toss:
+					print >>sys.stderr, "# Tossed non-linguistic line:", l
+				toss_count += 1
+				continue
 			
 			if alphanumeric: # if we require alphanumeric
 				collapsed = re_collapser.sub("", l) # replace digits and spaces with nothing so allw e have are characters
@@ -299,32 +313,41 @@ class LineFile:
 					else: 
 						toss_count+=1
 						keep = False # throw out lines with non-letter categories
-						if echo_toss: print >>sys.stderr, "# Tossed line that was non-alphanumeric:", l
+						if echo_toss: 
+							print >>sys.stderr, "# Tossed line that was non-alphanumeric:", l
 						break
 			
-			if not keep: continue # we can skip early here if we want
+			if not keep: 
+				continue # we can skip early here if we want
+
 			# clean up according to specs
-			if nounderscores: l = re_underscore.sub("", l)			
-			if lower: l = l.lower()
+			if nounderscores: 
+				l = re_underscore.sub("", l)			
+			if lower: 
+				l = l.lower()
+
+			if modifier_fn:
+				l = modifier_fn(l)
 			
 			# check the number of columns
 			if count_columns: 
-				cols = re_SPACE.split(l)
+				cols = l.split()
 				cn = len(cols)
-				if columns is None: columns = cn # save the first line
+				if columns is None: 
+					columns = cn # save the first line
 				
-				if columns != cn or any([not non_whitespace_matcher.search(ci) for ci in cols]):
+				if columns != cn or any(not non_whitespace_matcher.search(ci) for ci in cols):
 					keep = False
 					toss_count+=1
 					if echo_toss: print >>sys.stderr, "# Tossed line with bad column count (",cn,"):", l
 				
 			# and print if we should keep it
-			#print keep, cn, re_SPACE.split(l), l
+			#print keep, cn, l.split(), l
 			if keep: print >>o, l
 			
 		o.close()
 		
-		print >>sys.stderr, "# Clean tossed %i of %i lines" % (toss_count, total_count)
+		print >>sys.stderr, "# Clean tossed %i of %i lines, or %s percent" % (toss_count, total_count, str((toss_count/total_count) * 100))
 		
 		if CLEAN_TMP: self.rm_tmp()
 		
@@ -336,28 +359,31 @@ class LineFile:
 		
 		cols = listifnot(self.to_column_number(cols))
 		
-		vocabulary_d = dict()
-		for v in vocabulary: vocabulary_d[v] = True
+		vocabulary = set(vocabulary)
 		
 		self.mv_tmp()
 		o = codecs.open(self.path, "w", ENCODING)
-		for l in  self.lines():
-			parts = re_SPACE.split(l)
+		for l in self.lines():
+			parts = l.split()
 			keep = True
 			for c in cols: # for each thing to check, check it!
-				if vocabulary_d.get(parts[c], False) is invert:  # keep things in vocabulary unless invert
+				if (parts[c] in vocabulary) is invert:
 					keep = False
 					break
 			if keep: print >>o, l
 		o.close()
 		
 		if CLEAN_TMP: self.rm_tmp()
-		
 	
-	def resum_equal(self, keys, sumkeys, assert_sorted=True):
+	def make_marginal_column(self, newname, keys, sumkey):
+		self.copy_column(newname, sumkey)
+		self.sort(keys)
+		self.resum_equal(keys, newname, keep_all=True, assert_sorted=False)
+	
+	def resum_equal(self, keys, sumkeys, assert_sorted=True, keep_all=False):
 		"""
-			Takes all rows which are equal on the keys and sums the remaining keys. 
-			Anything not in keys or sumkeys, there are no guarantees for
+			Takes all rows which are equal on the keys and sums the sumkeys, overwriting them. 
+			Anything not in keys or sumkeys, there are only guarantees for if keep_all=True.
 		"""
 		
 		keys    = listifnot(self.to_column_number(keys))
@@ -369,48 +395,27 @@ class LineFile:
 		self.mv_tmp()
 		
 		o = codecs.open(self.path, "w", ENCODING)
-		old_compkey = None
-		old_parts = None
-		sums = defaultdict(int)
-		for parts in self.lines(parts=True):
-
-			# what key do we use to compare equality?
-			compkey = "\t".join([parts[x] for x in keys])
-			
-			if compkey == old_compkey: # sum up:
-				try:
-					for x in sumkeys: sums[x] += int(parts[x])
-				except IndexError:
-					print "IndexError:", parts, sumkeys
-				
-			else: # else print out the previous line, if nothing
-				
-				if old_parts is not None:
-					# the easiest way to do this is just to overwrite in parts with the new counts
-					for x in sumkeys: old_parts[x] = str(sums[x])
-					
-					# and print output					
-					print >>o, "\t".join(old_parts)
-				
-				# and update the new 
-				sums = defaultdict(int)
-				try:
-					for x in sumkeys: sums[x] += int(parts[x])
-				except IndexError:
-					print "IndexError:", parts, sumkeys
-					
-				#print (old_compkey<compkey), old_compkey, "=?=", compkey
-				assert(old_compkey < compkey) # better be in sorted order, or this fails
-				old_compkey = compkey
-				
-				old_parts = parts
-		
-		# and print the last line:
-		for x in sumkeys: old_parts[x] = str(sums[x])
-		print >>o, "\t".join(old_parts)
+                for compkey, lines in self.groupby(keys):
+			if keep_all:
+				lines = list(lines) # load into memory; otherwise we can only iterate through once
+			sums = Counter()
+			for parts in lines:
+				for sumkey in sumkeys:
+					try:
+						sums[sumkey] += int(parts[sumkey])
+					except IndexError:
+						print >>sys.stderr, "IndexError:", parts, sumkeys
+			if keep_all:
+				for parts in lines:
+					for sumkey in sumkeys:
+						parts[sumkey] = str(sums[sumkey])
+					print >>o, "\t".join(parts)
+			else:
+				for sumkey in sumkeys:
+					parts[sumkey] = str(sums[sumkey]) # "parts" is the last line
+				print >>o, "\t".join(parts)
 		
 		o.close()
-	
 		if CLEAN_TMP: self.rm_tmp()
 		
 	def assert_sorted(self, keys, dtype=unicode, allow_equal=False):
@@ -427,8 +432,10 @@ class LineFile:
 			sortkey = self.extract_columns(line, keys=keys, dtype=dtype) # extract_columns gives them back tab-sep, but we need to cast them
 			
 			if prev_sortkey is not None:
-				if allow_equal: myassert( prev_sortkey <= sortkey, line+";"+unicode(prev_sortkey)+";"+unicode(sortkey) )
-				else:           myassert( prev_sortkey < sortkey, line+";"+unicode(prev_sortkey)+";"+unicode(sortkey) )
+				if allow_equal: 
+					myassert( prev_sortkey <= sortkey, line+";"+unicode(prev_sortkey)+";"+unicode(sortkey) )
+				else:           
+					myassert( prev_sortkey < sortkey, line+";"+unicode(prev_sortkey)+";"+unicode(sortkey) )
 			
 			prev_sortkey = sortkey
 	
@@ -442,6 +449,10 @@ class LineFile:
 		os.remove(self.tmppath)
 	def delete_tmp(self):
 		os.remove(self.tmppath)
+
+	def copy_column(self, newname, key):
+		""" Copy a column. """
+		self.make_column(newname, lambda x: x, [key])
 		
 	def make_column(self, newname, function, keys):
 		"""
@@ -463,7 +474,7 @@ class LineFile:
 		o = codecs.open(self.path, "w", ENCODING)
 
 		for line in self.lines():
-			parts = re_SPACE.split(line)
+			parts = line.split()
 			print >>o, line+"\t"+function(*[parts[i] for i in keys])
 			
 		self.header.extend(listifnot(newname))
@@ -503,9 +514,9 @@ class LineFile:
 		for l in self.lines(yieldfinal=True):
 			
 			# on EOF or read in enough, process
-			parts = re_SPACE.split(l)
+			parts = l.split()
 
-			if (not l) or len(current_lines) >= lines:
+			if not l or len(current_lines) >= lines:
 				sort_tmp_path = self.path+".sorted."+str(temp_id)
 				o = codecs.open(sort_tmp_path, 'w', ENCODING)
 				print >>o, "\n".join(sorted(current_lines, key=get_sort_key))
@@ -522,13 +533,15 @@ class LineFile:
 		# okay now go through and merge sort -- use this cool heapq merging trick!
 		o = codecs.open(self.path, "w", ENCODING)
 		for x in heapq.merge(*map(yield_lines, sorted_tmp_files)):
-			print >>o, x[len(x)-1] # the last item is the line itself, everything else is sort keys
+			print >>o, x[-1] # the last item is the line itself, everything else is sort keys
 		o.close()
 		
 		# clean up
-		for f in sorted_tmp_files: os.remove(f)
+		for f in sorted_tmp_files: 
+			os.remove(f)
 		
-		if CLEAN_TMP: self.rm_tmp()
+		if CLEAN_TMP: 
+			self.rm_tmp()
 		
 	def merge(self, other, keys1, tocopy, keys2=None, newheader=None, assert_sorted=True):
 		"""
@@ -546,7 +559,7 @@ class LineFile:
 		# fix up the keys
 		# Note: Keys2 must be processed first here so we can specify by names, 
 		#       and not have keys1 overwritten when they are mapped to numbers
-		keys2 = listifnot(other.to_column_number(ifelse(keys2 is None, keys1, keys2)))
+		keys2 = listifnot(other.to_column_number(keys1 if keys2 is None else keys2))
 		tocopy = listifnot(other.to_column_number(tocopy))
 		keys1 = listifnot(self.to_column_number(keys1))
 		
@@ -574,9 +587,9 @@ class LineFile:
 				#print "HERE", key2
 				line2, parts2, key2 = read_and_parse(in2, keys=keys2)
 				if not line2:  # okay there is no match for line1 anywhere
-					print "** Error in merge: end of line2 before end of line 1:"
-					print "\t", line1
-					print "\t", line2
+					print >>sys.stderr, "** Error in merge: end of line2 before end of line 1:"
+					print >>sys.stderr, "\t", line1
+					print >>sys.stderr, "\t", line2
 					exit(1)
 		o.close()
 		in1.close()
@@ -594,7 +607,6 @@ class LineFile:
 			Also prints the total frequency
 			downsample - also prints the downsampled measures, where we only have downsample counts total. An attempt to correct H bias
 		"""
-		
 		if assert_sorted:
 			self.assert_sorted(listifnot(W),  allow_equal=True) # allow W to be true
 			
@@ -605,54 +617,30 @@ class LineFile:
 		#assert(not isinstance(X,list))
 		
 		cntXgW = self.to_column_number(cntXgW)
-		assert(not isinstance(cntXgW,list))
+		assert(not isinstance(cntXgW, list))
 		
 		if assert_sorted: self.assert_sorted(listifnot(W),  allow_equal=True)
 		
-		wcounts = []
 		prevW = None
 		if header: print preh+"Word\tFrequency\tContextCount\tContextEntropy\tContextEntropy2\tContextEntropy5\tContextEntropy10\tContextEntropy%i\tContextCount%i" % (downsample, downsample)
-		for parts in self.lines(parts=True, tmp=False):
+		for w, lines in self.groupby(W):
+			w = w[0] # w comes out as ("hello",)
+			wcounts = np.array([float(parts[cntXgW]) for parts in lines])
+			sumcount = sum(wcounts)
+			dp = numpy.sort(numpy.random.multinomial(downsample, wcounts / sumcount)) # sort so we can take top on next line
+			tp2, tp5, tp10 = dp[-2:], dp[-5:], dp[-10:]
+			print pre, w, "\t", sumcount, "\t", len(wcounts), "\t", c2H(wcounts), "\t", c2H(tp2), "\t", c2H(tp5), "\t", c2H(tp10), "\t", c2H(dp), "\t", numpy.sum(dp>0)
+
 			
-			w = parts[W]
-			#c = parts[Xcol]
-			cnt = int(parts[cntXgW])
-			
-			if w != prevW:
-				if prevW is not None:
-					sumcount = float(sum(wcounts))
-					wcounts = numpy.array(wcounts, dtype=float)
-					
-					# And do the downsample measures
-					dp = numpy.sort(numpy.random.multinomial(downsample, wcounts / sumcount)) # sort so we can take top on next line
-					tp2, tp5, tp10 = dp[-2:], dp[-5:], dp[-10:]
-										
-					print pre, prevW, "\t", sumcount, "\t", len(wcounts), "\t", c2H(wcounts), "\t", c2H(tp2), "\t", c2H(tp5), "\t", c2H(tp10), "\t", c2H(dp), "\t", numpy.sum(dp>0)
-				
-				wcounts = [cnt]
-				prevW = w
-			else:
-				wcounts.append(cnt)
-				
-		
-		## AND PRINT THE LAST ONE: TODO: FIX THIS STUPIDITY
-		prevW = w
-		sumcount = float(sum(wcounts))
-		wcounts = numpy.array(wcounts, dtype=float)
-		
-		# And do the downsample measures
-		dp = numpy.sort(numpy.random.multinomial(downsample, wcounts / sumcount)) # sort so we can take top on next line
-		tp2, tp5, tp10 = dp[-2:], dp[-5:], dp[-10:]
-							
-		print pre, prevW, "\t", sumcount, "\t", len(wcounts), "\t", c2H(wcounts), "\t", c2H(tp2), "\t", c2H(tp5), "\t", c2H(tp10), "\t", c2H(dp), "\t", numpy.sum(dp>0)
-			
-	def print_average_surprisal(self, W, CWcnt, Ccnt, assert_sorted=True):
+	def print_average_surprisal(self, W, CWcnt, Ccnt, transcribe_fn=None, assert_sorted=True):
 		"""
 			Compute the average in-context surprisal, as in Piantadosi, Tily Gibson (2011)
 			
 			- W     - column for the word
 			- CWcnt - column for the count of context-word
 			- Ccnt  - column for the count of the context
+			- transcribe_fn (optional) - transcription to do before measuring word length
+			     i.e. convert word to IPA, convert Chinese characters to pinyin, etc.
 			
 			NOTE: This prints output rather than 
 		"""
@@ -667,32 +655,23 @@ class LineFile:
 		if assert_sorted:
 			self.assert_sorted(listifnot(W),  allow_equal=True)
 		
-		sumSurprisal = 0
-		total_context_count = 0
-		total_word_frequency = 0
-		prev_w = None
 		print "Word\tOrthographic.Length\tSurprisal\tLog.Frequency\tTotal.Context.Count"
-		for parts in self.lines(parts=True, tmp=False):
-			
-			w = parts[W]
-			cwcnt = int(parts[CWcnt])
-			ccnt  = int(parts[Ccnt])
-			
-			if w != prev_w and prev_w is not None:
-				# print a bunch of measures
-				print "\""+prev_w+"\"", "\t", len(prev_w), "\t", sumSurprisal / total_word_frequency, "\t", log2(total_word_frequency), "\t", total_context_count
-				
-				total_context_count = 0
-				sumSurprisal = 0
-				total_word_frequency = 0
-			
-			prev_w = w
-			sumSurprisal -= (log2(cwcnt) - log2(ccnt)) * cwcnt
-			total_word_frequency += cwcnt
-			total_context_count += 1  # just count how many contexts
-		
-		# and print at the end
-		print prev_w, "\t", len(prev_w), "\t", sumSurprisal / total_word_frequency, "\t", log2(total_word_frequency), "\t", total_context_count
+		for word, lines in self.groupby(W, tmp=False):
+			word = word[0] # word comes out as (word,)
+			if transcribe_fn:
+				word = transcribe_fn(word)
+			sum_surprisal = 0
+			total_word_frequency = 0
+			total_context_count = 0
+			for parts in lines:
+				cwcnt = int(parts[CWcnt])
+				ccnt = int(parts[Ccnt])
+				sum_surprisal -= (log2(cwcnt) - log2(ccnt)) * cwcnt
+				total_word_frequency += cwcnt
+				total_context_count += 1
+				length = len(word)
+			print "\""+word+"\"", "\t", length, "\t", sum_surprisal /\
+ total_word_frequency, "\t", log2(total_word_frequency), "\t", total_context_count
 	
 	#################################################################################################
 	# Iterators
@@ -713,25 +692,34 @@ class LineFile:
 		#while text != []:
 			#for line in text:
 				#line = line.strip()
-				#if parts: yield re_SPACE.split(line)
+				#if parts: yield line.split()
 				#else:     yield line
 			#text = inn.readlines(IO_BUFFER_SIZE)
 				
 		for line in inn:
 			line = line.strip()
-			if parts: yield re_SPACE.split(line)
+			if parts: yield line.split()
 			else:     yield line
 			
 		if yieldfinal: yield ''
 		inn.close()
+
+	def groupby(self, keys, tmp=True):
+		"""
+                       A groupby iterator matching the given keys.
+
+                """
+                keys = listifnot(self.to_column_number(keys))
+                key_fn = lambda parts: tuple(parts[x] for x in keys)
+                return itertools.groupby(self.lines(parts=True, tmp=tmp), key_fn)
 		
 	def __len__(self):
 		"""
 			How many total lines?
 		"""
-		l = 0
-		for k in self.lines(tmp=False): l += 1
-		return l
+		for i, _ in enumerate(self.lines(tmp=False)):
+			pass
+		return i+1
 		
 	def subsample_lines(self, N=1000000):
 		"""
@@ -760,13 +748,8 @@ class LineFile:
 	
 	def sum_column(self, col, cast=int, tmp=True):
 		
-		thesum = 0
 		col = self.to_column_number(col)
-		
-		for parts in self.lines(parts=True, tmp=tmp):
-			thesum += cast(parts[col])
-
-		return thesum
+		return sum(cast(parts[col]) for parts in self.lines(parts=True, tmp=tmp))
 		
 	def downsample_tokens(self, N, ccol, keep_zero_counts=False):
 		"""
@@ -780,7 +763,6 @@ class LineFile:
 			This uses a conditional beta distribution, once for each line for a total of N.
 			See pg 12 of w3.jouy.inra.fr/unites/miaj/public/nosdoc/rap2012-5.pdf
 		"""
-		
 		self.header.extend(ccol)
 		ccol = self.to_column_number(ccol)
 		

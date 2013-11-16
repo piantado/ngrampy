@@ -26,19 +26,9 @@ print "# Resumming for case collapsing"
 G.sort(keys="w1 w2") 
 G.resum_equal("w1 w2", "cnt12", assert_sorted=ASSERT_SORTED ) # in collapsing case, etc., we need to re-sum
 
-# Now go through and 
-Gcontext = G.copy()
-#print "# Sorting by context"
-#Gcontext.sort("w1 w2") # sort this by the one we do want 
-print "# Computing context sum"
-Gcontext.resum_equal( "w1", "cnt12", assert_sorted=ASSERT_SORTED ) # resum equal
-Gcontext.rename_column("cnt12", "cnt1") # rename the column since its now a sum of 1
-print "# Sorting by context"
-Gcontext.sort("w1") # sort our target by w
-print "# Merging"
-G.merge(Gcontext, keys1="w1", tocopy="cnt1", assert_sorted=ASSERT_SORTED) # merge in
-print "# Deleting Gcontext"
-Gcontext.delete() # and delete this temporary
+# Now go through and
+print "# Making marginal counts"
+G.make_marginal_column("cnt1", "w1", "cnt12") 
 
 # and compute surprisal
 print "# Sorting by word"
