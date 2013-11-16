@@ -374,12 +374,16 @@ class LineFile(object):
 		o.close()
 		
 		if CLEAN_TMP: self.rm_tmp()
-		
 	
-	def resum_equal(self, keys, sumkeys, assert_sorted=True):
+	def make_marginal_column(self, newname, keys, sumkey):
+		self.copy_column(newname, sumkey)
+		self.sort(keys)
+		self.resum_equal(keys, newname, keep_all=True, assert_sorted=False)
+	
+	def resum_equal(self, keys, sumkeys, assert_sorted=True, keep_all=False):
 		"""
-			Takes all rows which are equal on the keys and sums the remaining keys. 
-			Anything not in keys or sumkeys, there are no guarantees for
+			Takes all rows which are equal on the keys and sums the sumkeys, overwriting them. 
+			Anything not in keys or sumkeys, there are only guarantees for if keep_all=True.
 		"""
 		
 		keys    = listifnot(self.to_column_number(keys))
@@ -391,48 +395,27 @@ class LineFile(object):
 		self.mv_tmp()
 		
 		o = codecs.open(self.path, "w", ENCODING)
-		old_compkey = None
-		old_parts = None
-		sums = defaultdict(int)
-		for parts in self.lines(parts=True):
-
-			# what key do we use to compare equality?
-			compkey = "\t".join([parts[x] for x in keys])
-			
-			if compkey == old_compkey: # sum up:
-				try:
-					for x in sumkeys: sums[x] += int(parts[x])
-				except IndexError:
-					print "IndexError:", parts, sumkeys
-				
-			else: # else print out the previous line, if nothing
-				
-				if old_parts is not None:
-					# the easiest way to do this is just to overwrite in parts with the new counts
-					for x in sumkeys: old_parts[x] = str(sums[x])
-					
-					# and print output					
-					print >>o, "\t".join(old_parts)
-				
-				# and update the new 
-				sums = defaultdict(int)
-				try:
-					for x in sumkeys: sums[x] += int(parts[x])
-				except IndexError:
-					print "IndexError:", parts, sumkeys
-					
-				#print (old_compkey<compkey), old_compkey, "=?=", compkey
-				assert(old_compkey < compkey) # better be in sorted order, or this fails
-				old_compkey = compkey
-				
-				old_parts = parts
-		
-		# and print the last line:
-		for x in sumkeys: old_parts[x] = str(sums[x])
-		print >>o, "\t".join(old_parts)
+                for compkey, lines in self.groupby(keys):
+			if keep_all:
+				lines = list(lines) # load into memory; otherwise we can only iterate through once
+			sums = Counter()
+			for parts in lines:
+				for sumkey in sumkeys:
+					try:
+						sums[sumkey] += int(parts[sumkey])
+					except IndexError:
+						print >>sys.stderr, "IndexError:", parts, sumkeys
+			if keep_all:
+				for parts in lines:
+					for sumkey in sumkeys:
+						parts[sumkey] = str(sums[sumkey])
+					print >>o, "\t".join(parts)
+			else:
+				for sumkey in sumkeys:
+					parts[sumkey] = str(sums[sumkey]) # "parts" is the last line
+				print >>o, "\t".join(parts)
 		
 		o.close()
-	
 		if CLEAN_TMP: self.rm_tmp()
 		
 	def assert_sorted(self, keys, dtype=unicode, allow_equal=False):
