@@ -624,7 +624,6 @@ class LineFile(object):
 			Also prints the total frequency
 			downsample - also prints the downsampled measures, where we only have downsample counts total. An attempt to correct H bias
 		"""
-		
 		if assert_sorted:
 			self.assert_sorted(listifnot(W),  allow_equal=True) # allow W to be true
 			
@@ -673,32 +672,23 @@ class LineFile(object):
 		if assert_sorted:
 			self.assert_sorted(listifnot(W),  allow_equal=True)
 		
-		sumSurprisal = 0
-		total_context_count = 0
-		total_word_frequency = 0
-		prev_w = None
 		print "Word\tOrthographic.Length\tSurprisal\tLog.Frequency\tTotal.Context.Count"
-		for parts in self.lines(parts=True, tmp=False):
-			
-			w = parts[W]
-			cwcnt = int(parts[CWcnt])
-			ccnt  = int(parts[Ccnt])
-			
-			if w != prev_w and prev_w is not None:
-				# print a bunch of measures
-				print "\""+prev_w+"\"", "\t", len(prev_w), "\t", sumSurprisal / total_word_frequency, "\t", log2(total_word_frequency), "\t", total_context_count
-				
-				total_context_count = 0
-				sumSurprisal = 0
-				total_word_frequency = 0
-			
-			prev_w = w
-			sumSurprisal -= (log2(cwcnt) - log2(ccnt)) * cwcnt
-			total_word_frequency += cwcnt
-			total_context_count += 1  # just count how many contexts
-		
-		# and print at the end
-		print prev_w, "\t", len(prev_w), "\t", sumSurprisal / total_word_frequency, "\t", log2(total_word_frequency), "\t", total_context_count
+		for word, lines in self.groupby(W, tmp=False):
+			word = word[0] # word comes out as (word,)
+			if transcribe_fn:
+				word = transcribe_fn(word)
+			sum_surprisal = 0
+			total_word_frequency = 0
+			total_context_count = 0
+			for parts in lines:
+				cwcnt = int(parts[CWcnt])
+				ccnt = int(parts[Ccnt])
+				sum_surprisal -= (log2(cwcnt) - log2(ccnt)) * cwcnt
+				total_word_frequency += cwcnt
+				total_context_count += 1
+				length = len(word)
+			print "\""+word+"\"", "\t", length, "\t", sum_surprisal /\
+ total_word_frequency, "\t", log2(total_word_frequency), "\t", total_context_count
 	
 	#################################################################################################
 	# Iterators
@@ -730,6 +720,15 @@ class LineFile(object):
 			
 		if yieldfinal: yield ''
 		inn.close()
+
+	def groupby(self, keys, tmp=True):
+		"""
+                       A groupby iterator matching the given keys.
+
+                """
+                keys = listifnot(self.to_column_number(keys))
+                key_fn = lambda parts: tuple(parts[x] for x in keys)
+                return itertools.groupby(self.lines(parts=True, tmp=tmp), key_fn)
 		
 	def __len__(self):
 		"""
