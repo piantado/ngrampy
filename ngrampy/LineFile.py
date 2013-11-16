@@ -52,6 +52,7 @@ from math import log
 from collections import defaultdict
 from copy import deepcopy
 
+#import numpypy # For use with pypy
 import numpy
 
 # A temporary file like /tmp

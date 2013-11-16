@@ -18,6 +18,8 @@ so that you can handle utf-8 characters from google.
 
 NOTE: This splits columns in the text files by whitespace; if you want something else, you should merge with underscores or something
 
+NOTE: The pypy tends to run much faster than python for this!
+
 ========================================================
 == LICENSE
 ========================================================

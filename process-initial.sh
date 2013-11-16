@@ -2,6 +2,10 @@
 
 # A script to initially process google data. The significantly speeds up everything later.
 
-nohup pigz -dc /CorpusA/GoogleBooks/eng-gb-all/2/* | python process-google.py > /CorpusA/GoogleBooks/Processed/eng-gb-2 &
-nohup pigz -dc /CorpusA/GoogleBooks/eng-us-all/2/* | python process-google.py > /CorpusA/GoogleBooks/Processed/eng-us-2 &
+DIR=/home/piantado/Corpus/GoogleBooks/
+for L in eng-us-all fre-all heb-all ita-all rus-all spa-all ger-all; do
+	myDIR=$DIR/Processed/bigram/$L
+	mkdir $myDIR
+	pypy process-google.py --in=$DIR/$L/2/* --out=$myDIR/bigram --quiet & ## TODO: IF YOU CHANGE N, CHANGE THE 
+done
 
