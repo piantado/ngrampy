@@ -604,9 +604,9 @@ class LineFile(object):
 				#print "HERE", key2
 				line2, parts2, key2 = read_and_parse(in2, keys=keys2)
 				if not line2:  # okay there is no match for line1 anywhere
-					print "** Error in merge: end of line2 before end of line 1:"
-					print "\t", line1
-					print "\t", line2
+					print >>sys.stderr, "** Error in merge: end of line2 before end of line 1:"
+					print >>sys.stderr, "\t", line1
+					print >>sys.stderr, "\t", line2
 					exit(1)
 		o.close()
 		in1.close()
