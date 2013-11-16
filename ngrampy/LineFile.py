@@ -273,7 +273,7 @@ class LineFile(object):
 			
 
 		
-	def clean(self, columns=None, lower=True, alphanumeric=True, count_columns=True, nounderscores=True, echo_toss=False):
+	def clean(self, columns=None, lower=True, alphanumeric=True, count_columns=True, nounderscores=True, echo_toss=False, filter_fn=None, modifier_fn=None):
 		"""
 			This does several things:
 				columns - how many cols should there be? If None, then we use the first line
@@ -284,6 +284,8 @@ class LineFile(object):
 				nounderscores - if True, we remove everything matchin _[^\s]\s -> " "
 				echo_toss - tell us who was removed
 				already_tabbed - if true, we know to split cols on tabs; otherwise whitespace
+				filter_fn - User-provided boolean filtering function
+				modifier_fn - User-provided function to modify the line (downcase etc)
 		"""
 		self.mv_tmp()
 		
@@ -295,6 +297,13 @@ class LineFile(object):
 		for l in self.lines():
 			total_count += 1
 			keep = True
+
+			if filter_fn and not filter_fn(l):
+				keep = False
+				if echo_toss:
+					print >>sys.stderr, "# Tossed non-linguistic line:", l
+				toss_count += 1
+				continue
 			
 			if alphanumeric: # if we require alphanumeric
 				collapsed = re_collapser.sub("", l) # replace digits and spaces with nothing so allw e have are characters
@@ -304,27 +313,36 @@ class LineFile(object):
 					else: 
 						toss_count+=1
 						keep = False # throw out lines with non-letter categories
-						if echo_toss: print >>sys.stderr, "# Tossed line that was non-alphanumeric:", l
+						if echo_toss: 
+							print >>sys.stderr, "# Tossed line that was non-alphanumeric:", l
 						break
 			
-			if not keep: continue # we can skip early here if we want
+			if not keep: 
+				continue # we can skip early here if we want
+
 			# clean up according to specs
-			if nounderscores: l = re_underscore.sub("", l)			
-			if lower: l = l.lower()
+			if nounderscores: 
+				l = re_underscore.sub("", l)			
+			if lower: 
+				l = l.lower()
+
+			if modifier_fn:
+				l = modifier_fn(l)
 			
 			# check the number of columns
 			if count_columns: 
-				cols = re_SPACE.split(l)
+				cols = l.split()
 				cn = len(cols)
-				if columns is None: columns = cn # save the first line
+				if columns is None: 
+					columns = cn # save the first line
 				
-				if columns != cn or any([not non_whitespace_matcher.search(ci) for ci in cols]):
+				if columns != cn or any(not non_whitespace_matcher.search(ci) for ci in cols):
 					keep = False
 					toss_count+=1
 					if echo_toss: print >>sys.stderr, "# Tossed line with bad column count (",cn,"):", l
 				
 			# and print if we should keep it
-			#print keep, cn, re_SPACE.split(l), l
+			#print keep, cn, l.split(), l
 			if keep: print >>o, l
 			
 		o.close()
