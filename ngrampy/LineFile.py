@@ -91,7 +91,7 @@ def read_and_parse(inn, keys):
 		line = inn.readline().strip()
 		if not line: return line, None, None
 		else:
-			parts = re_SPACE.split(line)
+			parts = line.split()
 			return line, parts, "\t".join([parts[x] for x in keys])
 
 def systemcall(x):
@@ -171,7 +171,7 @@ class LineFile(object):
 		# and store some variables
 		self.tmppath = self.path+".tmp"
 		
-		if isinstance(header, str): header = re_SPACE.split(header)
+		if isinstance(header, str): header = header.split()
 		self.header = header
 		
 	def setheader(self, *x): self.header = x
@@ -192,7 +192,7 @@ class LineFile(object):
 		elif isinstance(x, str): 
 		
 			if re_SPACE.search(x):  # if spaces, treat it as an array and map
-				return map(self.to_column_number, re_SPACE.split(x))
+				return map(self.to_column_number, x.split())
 			
 			# otherwise, a single string so just find the header that equals it
 			for i in xrange(len(self.header)):
@@ -264,7 +264,7 @@ class LineFile(object):
 		"""
 		if isinstance(keys, str): keys = listifnot(self.to_column_number(keys))
 		
-		parts = re_SPACE.split(line)
+		parts = line.split()
 		
 		if isinstance(dtype,list):
 			return [ dtype[i](parts[x]) for i,x in enumerate(keys)]
@@ -363,8 +363,8 @@ class LineFile(object):
 		
 		self.mv_tmp()
 		o = codecs.open(self.path, "w", ENCODING)
-		for l in  self.lines():
-			parts = re_SPACE.split(l)
+		for l in self.lines():
+			parts = l.split()
 			keep = True
 			for c in cols: # for each thing to check, check it!
 				if (parts[c] in vocabulary) is invert:
@@ -491,7 +491,7 @@ class LineFile(object):
 		o = codecs.open(self.path, "w", ENCODING)
 
 		for line in self.lines():
-			parts = re_SPACE.split(line)
+			parts = line.split()
 			print >>o, line+"\t"+function(*[parts[i] for i in keys])
 			
 		self.header.extend(listifnot(newname))
@@ -531,7 +531,7 @@ class LineFile(object):
 		for l in self.lines(yieldfinal=True):
 			
 			# on EOF or read in enough, process
-			parts = re_SPACE.split(l)
+			parts = l.split()
 
 			if not l or len(current_lines) >= lines:
 				sort_tmp_path = self.path+".sorted."+str(temp_id)
@@ -709,13 +709,13 @@ class LineFile(object):
 		#while text != []:
 			#for line in text:
 				#line = line.strip()
-				#if parts: yield re_SPACE.split(line)
+				#if parts: yield line.split()
 				#else:     yield line
 			#text = inn.readlines(IO_BUFFER_SIZE)
 				
 		for line in inn:
 			line = line.strip()
-			if parts: yield re_SPACE.split(line)
+			if parts: yield line.split()
 			else:     yield line
 			
 		if yieldfinal: yield ''
