@@ -1,4 +1,3 @@
-
 """ 
     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -60,6 +59,8 @@ except ImportError:
 	except ImportError:
 		pass
 
+from debug import *
+
 # A temporary file like /tmp
 NGRAMPY_DEFAULT_PATH = "/tmp" #If no path is specified, we go here
 
@@ -94,34 +95,41 @@ def read_and_parse(inn, keys):
 			parts = line.split()
 			return line, parts, "\t".join([parts[x] for x in keys])
 
-def systemcall(x):
+def systemcall(x, echo=ECHO_SYSTEM):
 	"""
 		Call System functions but echo if we want
 	"""
-	if ECHO_SYSTEM: print >>sys.stderr, x
+	if ECHO_SYSTEM: 
+		print >>sys.stderr, x
 	os.system(x)
 
 def ifelse(x, y, z):
 	return y if x else z
 		
 def listifnot(x):
-	if isinstance(x, list): return x
-	else:                   return [x]
+	return x if isinstance(x, list) else [x]
 	
 def myassert(tf, s):
-	if not tf: print >>sys.stderr, "*** Assertion fail: ",s
-	assert(tf)
+	if not tf: 
+		print >>sys.stderr, "*** Assertion fail: ",s
+	assert tf
 	
-def log2(x): return log(x,2.)
+def log2(x): 
+	return log(x,2.)
 
 def c2H(counts):
-	# Normalize counts and compute entropy	
+	""" Normalize counts and compute entropy	
+
+	Counts can be a generator.
+	Doesn't depend on numpy.
+
+	"""
 	total = 0.0
 	clogc = 0.0
 	for c in counts:
 		total += c
-		clogc += c * log2(c)
-	return -(clogc/total - log2(total))
+		clogc += c * log(c)
+	return -(clogc/total - log(total)) / log(2)
 
 
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
@@ -132,17 +140,18 @@ class LineFile(object):
 	
 	def __init__(self, files, header=None, path=None, force_nocopy=False):
 		"""
-			Createa  new file object with the specified header. It takes a list of files
-			and cats them to tmppath (overwriting it). If testing, it only does the first
-			one 
+			Create a new file object with the specified header. It takes a list of files
+			and cats them to tmppath (overwriting it). A single file is acceptable.
 			
 			header - give each column a name (you can refer by name instead of number)
 			path   - where is this file stored? If None, we make a new temporary files
 			force_nocopy - Primarily for debugging, this prevents us from copying a file and just uses the path as is
 					you should pass files a list of length 1 which is the file, and path should be None
 					as in, LineFile(files=["/ssd/trigram-stats"], header="w1 w2 w3 c123 c1 c2 c3 c12 c23 unigram bigram trigram", force_nocopy=True)
-			front_end_filter - a filtering that may remove/collapse some google lines for speed. 
 		"""
+		if isinstance(files, str):
+			files = [files]
+
 		if force_nocopy:
 			assert(len(files) == 1)
 			self.path = files[0]
@@ -160,10 +169,14 @@ class LineFile(object):
 				
 			# and if we specified a bunch of input files
 			for f in files:
-				if re.search(".idx$",f): continue # skip the index files
-				if re.search(".gz$", f):    systemcall("gunzip -d -c "+f+" >> "+self.path)
-				elif re.search(".bz2$", f): systemcall("bzip2 -d -c "+f+" >> "+self.path)
-				else:                       systemcall("cat "+f+" >> "+self.path)
+				if f.endswith(".idf"): 
+					continue # skip the index files
+				if f.endswith(".gz"):    
+					systemcall("gunzip -d -c "+f+" >> "+self.path)
+				elif f.endswith(".bz2"): 
+					systemcall("bzip2 -d -c "+f+" >> "+self.path)
+				else:                       
+					systemcall("cat "+f+" >> "+self.path)
 		
 		# just keep track
 		self.files = files
@@ -171,8 +184,10 @@ class LineFile(object):
 		# and store some variables
 		self.tmppath = self.path+".tmp"
 		
-		if isinstance(header, str): header = header.split()
-		self.header = header
+		if isinstance(header, str): 
+			self.header = header.split()
+		else:
+			self.header = header
 		
 	def setheader(self, *x): self.header = x
 	def rename_column(self, x, v): self.header[self.to_column_number(x)] = v
@@ -187,16 +202,19 @@ class LineFile(object):
 		 
 		"""
 		
-		if isinstance(x, int):    return x
-		elif isinstance(x, list): return map(self.to_column_number, x)
+		if isinstance(x, int):    
+			return x
+		elif isinstance(x, list): 
+			return map(self.to_column_number, x)
 		elif isinstance(x, str): 
 		
 			if re_SPACE.search(x):  # if spaces, treat it as an array and map
 				return map(self.to_column_number, x.split())
 			
 			# otherwise, a single string so just find the header that equals it
-			for i in xrange(len(self.header)):
-				if self.header[i] == x: return i
+			for i, item in enumerate(self.header):
+				if item == x: 
+					return i
 		
 		print >>sys.stderr, "Invalid header name ["+x+"]", self.header
 		exit(1)
@@ -208,12 +226,12 @@ class LineFile(object):
 		cols = sorted(listifnot(self.to_column_number(cols)), reverse=True)
 		
 		self.mv_tmp()
-		o = codecs.open(self.path, "w", ENCODING)
-		for parts in self.lines(parts=True):
-			for c in cols: del parts[c]
-			print >>o, "\t".join(parts)
-		o.close()
-		
+		with codecs.open(self.path, "w", ENCODING) as o: 
+			for parts in self.lines(parts=True):
+				for c in cols: 
+					del parts[c]
+				print >>o, "\t".join(parts)
+			
 		# and delete from the header
 		if self.header is not None:
 			for c in cols: del self.header[c]
@@ -231,7 +249,8 @@ class LineFile(object):
 		ind = 1
 		while True:
 			path = os.path.dirname(self.path)+"/ngrampy-"+str(ind)
-			if not os.path.isfile(path): return path
+			if not os.path.isfile(path): 
+				return path
 			ind += 1
 			
 	def mv_tmp(self):
@@ -250,22 +269,25 @@ class LineFile(object):
 			Remove the temporary file
 		"""
 		os.remove(self.tmppath)
-	def cp(self, f): shutil.cp(self.path, f)
+
+	def cp(self, f): 
+		shutil.cp(self.path, f)
 	
 	def extract_columns(self, line, keys, dtype=unicode):
-		"""'ut
+		"""
 			Extract some columns from a single line. Assumes that keys are numbers (e.g. already mapped through to_column_number)
-			and wil return the columns as the specified dtype
+			and will return the columns as the specified dtype
 			NOTE: This always returns a list, even if one column is specified. This may change in the future
 			
 			e.g. line="a\tb\tc\td"
 			     keys=[1,4]
 			     gives: ["a", "b", "c", "d"], "b\td"
 		"""
-		if isinstance(keys, str): keys = listifnot(self.to_column_number(keys))
+		if isinstance(keys, str): 
+			keys = listifnot(self.to_column_number(keys))
 		
 		parts = line.split()
-		
+
 		if isinstance(dtype,list):
 			return [ dtype[i](parts[x]) for i,x in enumerate(keys)]
 		else: 
@@ -273,11 +295,11 @@ class LineFile(object):
 			
 
 		
+	@log_calls
 	def clean(self, columns=None, lower=True, alphanumeric=True, count_columns=True, nounderscores=True, echo_toss=False, filter_fn=None, modifier_fn=None):
 		"""
 			This does several things:
 				columns - how many cols should there be? If None, then we use the first line
-				tab - Replace all whitspace on each line with tabs
 				lower - convert to lowercase
 				alphanumeric - toss lines with non-letter category characters (in unicode)
 				count_columns - if True, we throw out rows that don't have the same number of columns as the first line
@@ -301,7 +323,7 @@ class LineFile(object):
 			if filter_fn and not filter_fn(l):
 				keep = False
 				if echo_toss:
-					print >>sys.stderr, "# Tossed non-linguistic line:", l
+					print >>sys.stderr, "# Tossed filtered line:", l
 				toss_count += 1
 				continue
 			
@@ -320,15 +342,6 @@ class LineFile(object):
 			if not keep: 
 				continue # we can skip early here if we want
 
-			# clean up according to specs
-			if nounderscores: 
-				l = re_underscore.sub("", l)			
-			if lower: 
-				l = l.lower()
-
-			if modifier_fn:
-				l = modifier_fn(l)
-			
 			# check the number of columns
 			if count_columns: 
 				cols = l.split()
@@ -342,14 +355,25 @@ class LineFile(object):
 					if echo_toss: print >>sys.stderr, "# Tossed line with bad column count (",cn,"):", l
 				
 			# and print if we should keep it
-			#print keep, cn, l.split(), l
-			if keep: print >>o, l
+			if keep: 
+
+				# clean up according to specs
+				if nounderscores: 
+					l = re_underscore.sub("", l)			
+				if lower: 
+					l = l.lower()
+				if modifier_fn:
+					l = modifier_fn(l)
+					
+				print >>o, l
+
 			
 		o.close()
 		
 		print >>sys.stderr, "# Clean tossed %i of %i lines, or %s percent" % (toss_count, total_count, str((toss_count/total_count) * 100))
 		
-		if CLEAN_TMP: self.rm_tmp()
+		if CLEAN_TMP: 
+			self.rm_tmp()
 		
 	def restrict_vocabulary(self, cols, vocabulary, invert=False):
 		"""
@@ -443,16 +467,23 @@ class LineFile(object):
 	def cat(self): systemcall("cat "+self.path)
 	def head(self, n=10): 
 		print self.header
-		systemcall("head -n "+unicode(n)+" "+self.path)
+		systemcall("head -n "+unicode(n)+" "+self.path, echo=False)
 	def delete(self):
-		os.remove(self.path)
-		os.remove(self.tmppath)
+		try:
+			os.remove(self.path)
+		except OSError:
+			pass
+		try:
+			os.remove(self.tmppath)
+		except OSError:
+			pass # no temporary file exists
+
 	def delete_tmp(self):
 		os.remove(self.tmppath)
 
 	def copy_column(self, newname, key):
 		""" Copy a column. """
-		self.make_column(newname, lambda x: x, [key])
+		self.make_column(newname, lambda x: x, key)
 		
 	def make_column(self, newname, function, keys):
 		"""
@@ -480,8 +511,10 @@ class LineFile(object):
 		self.header.extend(listifnot(newname))
 		o.close()
 		
-		if CLEAN_TMP: self.rm_tmp()
+		if CLEAN_TMP: 
+			self.rm_tmp()
 		
+	@log_calls
 	def sort(self, keys, lines=SORT_DEFAULT_LINES, dtype=unicode, reverse=False):
 		"""
 			Sort me by my keys. this breaks the file up into subfiles of "lines", sorts them in RAM, 
@@ -632,9 +665,10 @@ class LineFile(object):
 			print pre, w, "\t", sumcount, "\t", len(wcounts), "\t", c2H(wcounts), "\t", c2H(tp2), "\t", c2H(tp5), "\t", c2H(tp10), "\t", c2H(dp), "\t", numpy.sum(dp>0)
 
 			
-	def print_average_surprisal(self, W, CWcnt, Ccnt, transcribe_fn=None, assert_sorted=True):
+	def average_surprisal(self, W, CWcnt, Ccnt, transcribe_fn=None, assert_sorted=True):
 		"""
-			Compute the average in-context surprisal, as in Piantadosi, Tily Gibson (2011)
+			Compute the average in-context surprisal, as in Piantadosi, Tily Gibson (2011). 
+			Yield output for each word.
 			
 			- W     - column for the word
 			- CWcnt - column for the count of context-word
@@ -642,7 +676,6 @@ class LineFile(object):
 			- transcribe_fn (optional) - transcription to do before measuring word length
 			     i.e. convert word to IPA, convert Chinese characters to pinyin, etc.
 			
-			NOTE: This prints output rather than 
 		"""
 		
 		W = self.to_column_number(W)
@@ -655,7 +688,6 @@ class LineFile(object):
 		if assert_sorted:
 			self.assert_sorted(listifnot(W),  allow_equal=True)
 		
-		print "Word\tOrthographic.Length\tSurprisal\tLog.Frequency\tTotal.Context.Count"
 		for word, lines in self.groupby(W, tmp=False):
 			word = word[0] # word comes out as (word,)
 			if transcribe_fn:
@@ -670,8 +702,13 @@ class LineFile(object):
 				total_word_frequency += cwcnt
 				total_context_count += 1
 				length = len(word)
-			print "\""+word+"\"", "\t", length, "\t", sum_surprisal /\
- total_word_frequency, "\t", log2(total_word_frequency), "\t", total_context_count
+			yield u'"%s"'%word, length, sum_surprisal/total_word_frequency, log2(total_word_frequency), total_context_count
+
+	def print_average_surprisal(self, W, CWcnt, Ccnt, transcribe_fn=None, assert_sorted=True):
+		print "Word\tOrthographic.Length\tSurprisal\tLog.Frequency\tTotal.Context.Count"
+		for line in self.average_surprisal(W, CWcnt, Ccnt, 
+			       transcribe_fn=transcribe_fn, assert_sorted=assert_sorted):
+			print u"\t".join(map(unicode, line))
 	
 	#################################################################################################
 	# Iterators
@@ -717,6 +754,7 @@ class LineFile(object):
 		"""
 			How many total lines?
 		"""
+		i = -1
 		for i, _ in enumerate(self.lines(tmp=False)):
 			pass
 		return i+1
