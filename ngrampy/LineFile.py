@@ -295,7 +295,6 @@ class LineFile(object):
 			
 
 		
-	@log_calls
 	def clean(self, columns=None, lower=True, alphanumeric=True, count_columns=True, nounderscores=True, echo_toss=False, filter_fn=None, modifier_fn=None):
 		"""
 			This does several things:
@@ -514,7 +513,6 @@ class LineFile(object):
 		if CLEAN_TMP: 
 			self.rm_tmp()
 		
-	@log_calls
 	def sort(self, keys, lines=SORT_DEFAULT_LINES, dtype=unicode, reverse=False):
 		"""
 			Sort me by my keys. this breaks the file up into subfiles of "lines", sorts them in RAM, 
