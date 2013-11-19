@@ -4,7 +4,8 @@ import math
 
 from nose.tools import *
 
-from ngrampy.LineFile import *
+from ngrampy.LineFile import LineFile
+from ngrampy.LineFileInMemory import LineFileInMemory
 
 def test_basics():
     G = LineFile("tests/smallcorpus.txt.bz2", header="foo bar baz qux", 
@@ -124,6 +125,102 @@ def test_unicode():
 
 
     G = LineFile("tests/smallcorpus.txt.bz2", header="foo bar baz qux", 
+                 path="tests/tmp/testcorpus")
+
+    def scramble(line):
+        words = line.split()[:3]
+        count = line.split()[-1]
+        for i, word in enumerate(words):
+            if word in scramblemap:
+                words[i] = scramblemap[word]
+            else:
+                garbage = u"".join(generate_random_unicode())
+                words[i] = garbage
+                scramblemap[word] = garbage
+
+        return " ".join(words + [count])
+
+    G.clean(lower=True, alphanumeric=False, count_columns=False, echo_toss=True,
+            modifier_fn=scramble)
+    G.make_marginal_column("quux", "foo bar", "qux")
+    G.sort("baz")
+    sum_counts_scrambled = G.sum_column("quux")
+    assert_equal(sum_counts, sum_counts_scrambled)
+    assert_equal(len_G, len(G))
+    sum_surprisal_scrambled = math.fsum(line[2] for line in G.average_surprisal("baz", "qux", "quux", assert_sorted=True))
+    G.delete()
+
+    assert_equal(sum_surprisal, sum_surprisal_scrambled)
+
+def test_clean_in_memory():
+    G = LineFileInMemory("tests/smallcorpus-malformed.txt.bz2", header="foo bar baz qux", 
+                 path="tests/tmp/testcorpus")
+    len_G = len(G)
+    G.clean(columns=4, lower=False, alphanumeric=False, count_columns=True, 
+            nounderscores=False, echo_toss=True)
+    assert_equal(len(G), len_G - 2)
+    G.delete()
+
+    G = LineFileInMemory("tests/smallcorpus-malformed.txt.bz2", header="foo bar baz qux", 
+                 path="tests/tmp/testcorpus")
+    G.clean(lower=True, alphanumeric=True, count_columns=False, echo_toss=True)
+    assert_equal(len(G), 8390)
+    G.delete()
+
+    G = LineFileInMemory("tests/smallcorpus-malformed.txt.bz2", header="foo bar baz qux", 
+                 path="tests/tmp/testcorpus")
+    G.clean(lower=True, alphanumeric=True, count_columns=False, echo_toss=True,
+            filter_fn=lambda x: False)
+    assert_equal(len(G), 0)
+    G.delete()
+
+    G = LineFileInMemory("tests/smallcorpus-malformed.txt.bz2", header="foo bar baz qux", 
+                 path="tests/tmp/testcorpus")
+    G.clean(lower=True, alphanumeric=False, count_columns=False, echo_toss=True,
+            modifier_fn=lambda x: "hello")
+    assert_equal(len(G), len_G)
+    for line in G.lines(tmp=False, parts=False):
+        assert_equal(line, "hello")
+    G.delete()
+
+def test_resum_equal_in_memory():
+    G = LineFileInMemory("tests/smallcorpus.txt.bz2", header="foo bar baz qux", 
+                 path="tests/tmp/testcorpus")
+    len_G = len(G)
+    total = G.sum_column("qux", tmp=False)
+    G.resum_equal("foo", "qux", assert_sorted=True, keep_all=False)
+    assert_equal(len(G), 1)
+    for line in G.lines(tmp=False):
+        assert_equal(int(G.extract_columns(line, "qux")[0]), total)
+    G.delete()
+
+    G = LineFileInMemory("tests/smallcorpus.txt.bz2", header="foo bar baz qux", 
+                 path="tests/tmp/testcorpus")
+    G.resum_equal("foo", "qux", assert_sorted=True, keep_all=True)
+    assert_equal(len(G), len_G)
+    for line in G.lines(tmp=False):
+        assert_equal(int(G.extract_columns(line, "qux")[0]), total)
+    G.delete()
+
+def test_unicode_in_memory():
+    def generate_random_unicode():
+        for _ in xrange(5):
+            yield unichr(random.choice((0x300, 0x9999)) + random.randint(0, 0xff))
+
+    scramblemap = {}
+
+    G = LineFileInMemory("tests/smallcorpus.txt.bz2", header="foo bar baz qux", 
+                 path="tests/tmp/testcorpus")
+    G.clean(lower=True, alphanumeric=False, count_columns=False, echo_toss=True)
+    G.make_marginal_column("quux", "foo bar", "qux")
+    G.sort("baz")
+    len_G = len(G)
+    sum_counts = G.sum_column("quux")
+    sum_surprisal = math.fsum(line[2] for line in G.average_surprisal("baz", "qux", "quux", assert_sorted=True))
+    G.delete()
+
+
+    G = LineFileInMemory("tests/smallcorpus.txt.bz2", header="foo bar baz qux", 
                  path="tests/tmp/testcorpus")
 
     def scramble(line):

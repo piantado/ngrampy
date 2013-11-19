@@ -235,6 +235,9 @@ class LineFile(object):
 		# and delete from the header
 		if self.header is not None:
 			for c in cols: del self.header[c]
+
+		if CLEAN_TMP:
+			self.rm_tmp()
 		
 		
 	def copy(self, path=None):
