@@ -121,11 +121,10 @@ class LineFileInMemory(LineFile):
 		
 		self.mv_tmp()
 
+		# make sure these are *decreasing* so we can delete in order
+		cols = sorted(listifnot(self.to_column_number(cols)), reverse=True)
+
 		def generate():
-		
-			# make sure these are *decreasing* so we can delete in order
-			cols = sorted(listifnot(self.to_column_number(cols)), reverse=True)
-		
 			for parts in self.lines(parts=True):
 				for c in cols: 
 					del parts[c]

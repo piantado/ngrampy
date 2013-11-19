@@ -152,6 +152,30 @@ def test_unicode():
 
     assert_equal(sum_surprisal, sum_surprisal_scrambled)
 
+def test_basics_in_memory():
+    G = LineFileInMemory("tests/smallcorpus.txt.bz2", header="foo bar baz qux", 
+                 path="tests/tmp/testcorpus")
+    assert_equal(G.header, "foo bar baz qux".split())
+    assert_equal(G.files, ["tests/smallcorpus.txt.bz2"])
+
+    G.make_column("quux", lambda x, y, z, w: "cat", "foo bar baz qux")
+    assert_equal(G.header, "foo bar baz qux quux".split())
+    for line in G.lines(parts=False, tmp=False):
+        assert_equal(G.extract_columns(line, "quux"), ["cat"])
+    
+    G.delete_columns("quux")
+    assert_equal(G.header, "foo bar baz qux".split())
+
+    G.copy_column("quux", "qux")
+    assert_equal(G.header, "foo bar baz qux quux".split())
+    for line in G.lines(parts=False, tmp=False):
+        assert_equal(G.extract_columns(line, "qux"), 
+                     G.extract_columns(line, "quux")
+                     )
+
+    G.delete()
+    assert_equal(len(G), 0)
+
 def test_clean_in_memory():
     G = LineFileInMemory("tests/smallcorpus-malformed.txt.bz2", header="foo bar baz qux", 
                  path="tests/tmp/testcorpus")
@@ -247,3 +271,4 @@ def test_unicode_in_memory():
     G.delete()
 
     assert_equal(sum_surprisal, sum_surprisal_scrambled)
+
