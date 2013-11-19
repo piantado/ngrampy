@@ -10,7 +10,9 @@
 
     Where possible, operations on files are replaced with analogous operations 
     on the in-memory data structures. Instead of keeping a file in path and another 
-    file in tmppath, main data and temp data are stored in separate lists.
+    file in tmppath, main data and temp data are stored in separate lists. But
+    these are not always used in the same places that the on-disk version uses
+    path and tmppath.
 
     Richard Futrell, 2013
     
@@ -334,28 +336,15 @@ class LineFileInMemory(LineFile):
 			dtype - the type of the data to be sorted. Should be a castable python type
 			        e.g. str, int, float
 		"""
-		self.mv_tmp()
-
-		temp_id = 0
-		current_lines = []
-		sorted_tmp_files = [] # a list of generators, yielding each line of the file
-		
 		keys = listifnot(self.to_column_number(keys))
 		
-		# a generator to hand back lines of a file and keys for sorting
-		def yield_lines(f):
-			for l in codecs.open(f, "r", ENCODING): yield get_sort_key(l.strip())
-				
 		# Map a line to sort keys (e.g. respecting dtype, etc) ; we use the fact that python will sort arrays (yay)
 		def get_sort_key(l):
 			sort_key = self.extract_columns(l, keys=keys, dtype=dtype) # extract_columns gives them back tab-sep, but we need to cast them
 			sort_key.append(l) # the second element is the line
 			return sort_key
 
-		self._lines = sorted(self._tmplines, key=get_sort_key)
-		
-		if CLEAN_TMP: 
-			self.rm_tmp()
+		self._lines = sorted(self._lines, key=get_sort_key)
 
 		
 	def merge(self, other, keys1, tocopy, keys2=None, newheader=None, assert_sorted=True):
