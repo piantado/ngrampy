@@ -450,7 +450,7 @@ class LineFile(object):
 		keys = self.to_column_number(keys)
 	
 		prev_sortkey = None
-		for line in codecs.open(self.path, "r", ENCODING):
+		for line in self.lines(tmp=False):
 			line = line.strip()
 			sortkey = self.extract_columns(line, keys=keys, dtype=dtype) # extract_columns gives them back tab-sep, but we need to cast them
 			
