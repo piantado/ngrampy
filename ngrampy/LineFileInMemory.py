@@ -1,40 +1,19 @@
 """ 
     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-	This class allows manipulation of google ngram data (and similar formatted) data. 
-	When you call functions on LineFiles, the changes are echoed in the file. 
-	
-	The uses tab (\t) as the column separator. 
-	
-	When you run this, if you get an encoding error, you may need to set the environment to 
-	
-		export PYTHONIOENCODING=utf-8	
-		
-	
-	TODO: 
-		- Make this so each function call etc. will output what it did
-		- Make a "separator" and make sure that all the relevant functions use this (instead of space)
-	NOTE:
-		- Column names cannot contain spaces. 
-		- do NOT change the printing to export funny, because then it will collapse characters to ascii in a bad way
-		
-	Steve Piantadosi 2012
-	Licensed under GPL 3.0
-	
-	This program is free software: you can redistribute it and/or modify
-	it under the terms of the GNU General Public License as published by
-	the Free Software Foundation, either version 3 of the License, or
-	(at your option) any later version.
+    This file contains a drop-in replacement for LineFile for in-memory operations.
+    It mocks the interface of LineFile, including file-related arguments, 
+    but performs all operations in memory. 
 
-	This program is distributed in the hope that it will be useful,
-	but WITHOUT ANY WARRANTY; without even the implied warranty of
-	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-	GNU General Public License for more details.
+    This is not the most efficient way to do this in-memory, but it provides
+    compability with scripts written for the on-disk version.
 
-	You should have received a copy of the GNU General Public License
-	along with this program.  If not, see <http://www.gnu.org/licenses/>.
+    Where possible, operations on files are replaced with analogous operations 
+    on the in-memory data structures. Instead of keeping a file in path and another 
+    file in tmppath, main data and temp data are stored in separate lists.
 
-	
+    Richard Futrell, 2013
+    
     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 """
 from __future__ import division
@@ -83,13 +62,11 @@ class LineFileInMemory(LineFile):
 	def __init__(self, files, header=None, path=None, force_nocopy=False):
 		"""
 			Create a new file object with the specified header. It takes a list of files
-			and cats them to tmppath (overwriting it). A single file is acceptable.
+			and reads them into memory as a list of lines.
 			
 			header - give each column a name (you can refer by name instead of number)
-			path   - where is this file stored? If None, we make a new temporary files
-			force_nocopy - Primarily for debugging, this prevents us from copying a file and just uses the path as is
-					you should pass files a list of length 1 which is the file, and path should be None
-					as in, LineFile(files=["/ssd/trigram-stats"], header="w1 w2 w3 c123 c1 c2 c3 c12 c23 unigram bigram trigram", force_nocopy=True)
+			path   - does nothing, for compatibility with LineFile
+			force_nocopy - does nothing, for compatibility with LineFile
 		"""
 		if isinstance(files, str):
 			files = [files]
@@ -148,7 +125,7 @@ class LineFileInMemory(LineFile):
 			
 	def mv_tmp(self):
 		"""
-			Move myself to my temporary file, so that I can cat to my self.path
+			Move contents of the primarily list of lines to the tmp list of lines.
 		"""
 		self._tmplines = deepcopy(self._lines)
 		del self._lines[:]
@@ -158,7 +135,7 @@ class LineFileInMemory(LineFile):
 		
 	def rm_tmp(self):
 		"""
-			Remove the temporary file
+			Delete the temporary list of lines.
 		"""
 		del self._tmplines[:]
 
@@ -310,12 +287,6 @@ class LineFileInMemory(LineFile):
 	def cat(self): 
 		raise NotImplementedError
 
-	def head(self, n=10): 
-		print self.header
-		lines = self.lines(tmp=False)
-		for _ in xrange(n):
-			print next(lines)
-
 	def delete(self):
 		del self._lines[:]
 		del self._tmplines[:]
@@ -358,11 +329,7 @@ class LineFileInMemory(LineFile):
 		
 	def sort(self, keys, lines=None, dtype=unicode, reverse=False):
 		"""
-			Sort me by my keys. this breaks the file up into subfiles of "lines", sorts them in RAM, 
-			and the mergesorts them
-			
-			We could use unix "sort" but that gives weirdness sometimes, and doesn't handle our keys
-			as nicely, since it treats spaces in a counterintuitive way
+			Sort me by my keys.
 			
 			dtype - the type of the data to be sorted. Should be a castable python type
 			        e.g. str, int, float

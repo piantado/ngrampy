@@ -141,7 +141,7 @@ class LineFile(object):
 	def __init__(self, files, header=None, path=None, force_nocopy=False):
 		"""
 			Create a new file object with the specified header. It takes a list of files
-			and cats them to tmppath (overwriting it). A single file is acceptable.
+			and cats them to path (overwriting it). A single file is acceptable.
 			
 			header - give each column a name (you can refer by name instead of number)
 			path   - where is this file stored? If None, we make a new temporary files
@@ -466,10 +466,15 @@ class LineFile(object):
 			prev_sortkey = sortkey
 	
 
-	def cat(self): systemcall("cat "+self.path)
-	def head(self, n=10): 
+	def cat(self): 
+		systemcall("cat "+self.path)
+
+        def head(self, n=10):
 		print self.header
-		systemcall("head -n "+unicode(n)+" "+self.path, echo=False)
+                lines = self.lines(tmp=False)
+                for _ in xrange(n):
+                        print next(lines)
+
 	def delete(self):
 		try:
 			os.remove(self.path)
