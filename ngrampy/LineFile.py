@@ -133,18 +133,28 @@ class LineFile(object):
 		else:
 			self.header = header
 
-	def write(self, it, tmp=False):
-		if tmp:
-			filename = self.tmppath
-		else:
-			filename = self.path
+		self._lazy_lines = None
 
-		with codecs.open(filename, 'wb', ENCODING, 
-				 'strict', IO_BUFFER_SIZE) as outfile:
+	def write(self, it, tmp=False, lazy=False):
+		if lazy:
+			self._lazy_lines = it
+		else:
+			if tmp:
+				filename = self.tmppath
+			else:
+				filename = self.path
+
+			with codecs.open(filename, 'wb', ENCODING, 
+					 'strict', IO_BUFFER_SIZE) as outfile:
 				for item in it:
 					print >>outfile, item
 
 	def read(self, tmp=False):
+		if tmp and self._lazy_lines:
+			for item in self._lazy_lines:
+				yield item
+			self._lazy_lines = None
+
 		if tmp:
 			filename = self.tmppath
 		else:
@@ -497,7 +507,7 @@ class LineFile(object):
                 if CLEAN_TMP:
                         self.rm_tmp()
 		
-	def sort(self, keys, lines=SORT_DEFAULT_LINES, dtype=unicode, reverse=False):
+	def sort(self, keys, num_lines=SORT_DEFAULT_LINES, dtype=unicode, reverse=False):
 		"""
 			Sort me by my keys. this breaks the file up into subfiles of "lines", sorts them in RAM, 
 			and the mergesorts them
@@ -511,46 +521,35 @@ class LineFile(object):
 		self.mv_tmp()
 		
 		temp_id = 0
-		current_lines = []
 		sorted_tmp_files = [] # a list of generators, yielding each line of the file
 		
 		keys = listifnot(self.to_column_number(keys))
-		
+
 		# a generator to hand back lines of a file and keys for sorting
 		def yield_lines(f):
 			for l in codecs.open(f, "r", ENCODING): 
 				yield get_sort_key(l.strip())
 				
-		# Map a line to sort keys (e.g. respecting dtype, etc) ; we use the fact that python will sort arrays (yay)
+		# Map a line to sort keys (e.g. respecting dtype, etc); 
+		# we use the fact that python will sort arrays (yay)
 		def get_sort_key(l):
-			sort_key = self.extract_columns(l, keys=keys, dtype=dtype) # extract_columns gives them back tab-sep, but we need to cast them
+			sort_key = self.extract_columns(l, keys=keys, dtype=dtype) 
 			sort_key.append(l) # the second element is the line
 			return sort_key
 		
-		for l in self.lines(yieldfinal=True):
-			
-			# on EOF or read in enough, process
-			parts = l.split()
-
-			if not l or len(current_lines) >= lines:
-				sort_tmp_path = self.path+".sorted."+str(temp_id)
-				with codecs.open(sort_tmp_path, 'wb', ENCODING) as o:
-					print >>o, "\n".join(sorted(current_lines, key=get_sort_key))
-				
-				sorted_tmp_files.append(sort_tmp_path)
-				
-				current_lines = []
-				temp_id += 1
-			
-			if not l: 
-				break
-			else: 
-				current_lines.append(l)
+		for chunk in chunks(self.lines(), num_lines):
+			sorted_tmp_path = self.path+".sorted."+str(temp_id)
+			with codecs.open(sorted_tmp_path, 'wb', ENCODING) as o:
+				print >>o, "\n".join(sorted(chunk, key=get_sort_key))
+			sorted_tmp_files.append(sorted_tmp_path)
+			temp_id += 1
 		
 		# okay now go through and merge sort -- use this cool heapq merging trick!
-		with codecs.open(self.path, "w", ENCODING) as o:
+		def merge_sort():
 			for x in heapq.merge(*map(yield_lines, sorted_tmp_files)):
-				print >>o, x[-1] # the last item is the line itself, everything else is sort keys
+				yield x[-1] # the last item is the line itself, everything else is sort keys
+
+		self.write(merge_sort())
 		
 		# clean up
 		for f in sorted_tmp_files: 
@@ -587,34 +586,35 @@ class LineFile(object):
 		self.mv_tmp()
 		
 		o = codecs.open(self.path, "w", ENCODING)
-		in1 = codecs.open(self.tmppath, "r", ENCODING)
-		in2 = codecs.open(other.path, "r", ENCODING)
+
+		in1 = self.read(tmp=True)
+		in2 = other.read(tmp=False)
 		
 		line1, parts1, key1 = read_and_parse(in1, keys=keys1)
 		line2, parts2, key2 = read_and_parse(in2, keys=keys2)
-		
-		while True:
-			if key1 == key2:
-				print >>o, line1+"\t"+"\t".join(self.extract_columns(line2, keys=tocopy))
-				
-				line1, parts1, key1 = read_and_parse(in1, keys=keys1)
-				if not line1: break
-			else:
-				#print "HERE", key2
-				line2, parts2, key2 = read_and_parse(in2, keys=keys2)
-				if not line2:  # okay there is no match for line1 anywhere
-					print >>sys.stderr, "** Error in merge: end of line2 before end of line 1:"
-					print >>sys.stderr, "\t", line1
-					print >>sys.stderr, "\t", line2
-					exit(1)
-		o.close()
-		in1.close()
-		in2.close()
+
+		def generate_merged():
+			while True:
+				if key1 == key2:
+					yield line1+"\t"+"\t".join(self.extract_columns(line2, keys=tocopy))
+					
+					line1, parts1, key1 = read_and_parse(in1, keys=keys1)
+					if not line1: 
+						break
+				else:
+					line2, parts2, key2 = read_and_parse(in2, keys=keys2)
+					if not line2:  # okay there is no match for line1 anywhere
+						print >>sys.stderr, "** Error in merge: end of line2 before end of line 1:"
+						print >>sys.stderr, "\t", line1
+						print >>sys.stderr, "\t", line2
+						exit(1)
+		self.write(generate_merged())
 		
 		#update the headers
 		self.header.extend([other.header[i] for i in tocopy ]) # copy the header names from other
 		
-		if CLEAN_TMP: self.rm_tmp()
+		if CLEAN_TMP: 
+			self.rm_tmp()
 	
 	def print_conditional_entropy(self, W, cntXgW, downsample=10000, assert_sorted=True, pre="", preh="", header=True):
 		"""
@@ -696,13 +696,12 @@ class LineFile(object):
 	#################################################################################################
 	# Iterators
 	
-	def lines(self, tmp=True, parts=False, yieldfinal=False):
+	def lines(self, tmp=True, parts=False):
 		"""
 			Yield me a stripped version of each line of tmplines
 			
 			- tmp -- do we iterate over path or tmp?
 			- parts - if true, we return an array that is split on tabs
-			- yieldfinal - give back a final '' 
 		"""
 		
 		inn = self.read(tmp=tmp)
@@ -713,9 +712,6 @@ class LineFile(object):
 		else:
 			for line in inn:
 				yield line.strip()
-			
-		if yieldfinal: 
-			yield ''
 
 	def groupby(self, keys, tmp=True):
 		"""

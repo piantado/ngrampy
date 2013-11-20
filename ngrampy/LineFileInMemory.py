@@ -104,9 +104,9 @@ class LineFileInMemory(LineFile):
 
 	def read(self, tmp=False):
 		if tmp:
-			return self._tmplines
+			return iter(self._tmplines)
 		else:
-			return self._lines
+			return iter(self._lines)
 		
 	def copy(self, path=None):
 		return deepcopy(self)
@@ -161,75 +161,15 @@ class LineFileInMemory(LineFile):
 		self.write(sorted(self.lines(tmp=False), key=get_sort_key))
 
 		
-	def merge(self, other, keys1, tocopy, keys2=None, newheader=None, assert_sorted=True):
-		"""
-			Copy lines of other that match on keys onto self
-			
-			other - a LineFile object -- who to merge in
-			keys1 - the keys of self for merging
-			keys2 - the keys of other for merging. If not specified, we assume they are the same as keys1
-			newheader - If specified, gives the names for the *new* columns
-			assert_sorted - make False if you don't want an extra check on sorting (things can go very bad)
-			
-			NOTE: This assumes that every line of self occurs in other, but not vice-versa. It 
-			      also allows multiples in self, but *not* other
-		"""
-		raise NotImplementedError
-		# fix up the keys
-		# Note: Keys2 must be processed first here so we can specify by names, 
-		#       and not have keys1 overwritten when they are mapped to numbers
-		keys2 = listifnot(other.to_column_number(keys1 if keys2 is None else keys2))
-		tocopy = listifnot(other.to_column_number(tocopy))
-		keys1 = listifnot(self.to_column_number(keys1))
-		
-		# this only works if we are sorted -- let's assert
-		if assert_sorted:
-			self.assert_sorted(keys1,  allow_equal=True) # we can have repeat lines
-			other.assert_sorted(keys2, allow_equal=False) # we cannot have repeat lines (how would they be mapped?)
-		
-		self.mv_tmp()
-		
-		o = codecs.open(self.path, "w", ENCODING)
-		in1 = codecs.open(self.tmppath, "r", ENCODING)
-		in2 = codecs.open(other.path, "r", ENCODING)
-		
-		line1, parts1, key1 = read_and_parse(in1, keys=keys1)
-		line2, parts2, key2 = read_and_parse(in2, keys=keys2)
-		
-		while True:
-			if key1 == key2:
-				print >>o, line1+"\t"+"\t".join(self.extract_columns(line2, keys=tocopy))
-				
-				line1, parts1, key1 = read_and_parse(in1, keys=keys1)
-				if not line1: break
-			else:
-				#print "HERE", key2
-				line2, parts2, key2 = read_and_parse(in2, keys=keys2)
-				if not line2:  # okay there is no match for line1 anywhere
-					print >>sys.stderr, "** Error in merge: end of line2 before end of line 1:"
-					print >>sys.stderr, "\t", line1
-					print >>sys.stderr, "\t", line2
-					exit(1)
-		o.close()
-		in1.close()
-		in2.close()
-		
-		#update the headers
-		self.header.extend([other.header[i] for i in tocopy ]) # copy the header names from other
-		
-		if CLEAN_TMP: self.rm_tmp()
-	
-			
 	#################################################################################################
 	# Iterators
 	
-	def lines(self, tmp=True, parts=False, yieldfinal=False):
+	def lines(self, tmp=True, parts=False):
 		"""
 			Yield me a stripped version of each line of tmplines
 			
 			- tmp -- do we iterate over path or tmp?
 			- parts - if true, we return an array that is split on tabs
-			- yieldfinal - give back a final '' 
 		"""
 
 
@@ -245,8 +185,6 @@ class LineFileInMemory(LineFile):
 		else:
 			return (line.strip() for line in it)
 			
-#		if yieldfinal: 
-#			yield ''
 
 	def __len__(self):
 		"""
