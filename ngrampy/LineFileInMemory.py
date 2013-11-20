@@ -85,7 +85,6 @@ class LineFileInMemory(LineFile):
 			else:
 				with fh.open(f, encoding=ENCODING) as infile:
 					self._lines.extend(infile)
-
 		
 		# just keep track
 		self.files = files
@@ -94,43 +93,33 @@ class LineFileInMemory(LineFile):
 			self.header = header.split()
 		else:
 			self.header = header
-		
-		
-	def delete_columns(self, cols):
-		
-		self.mv_tmp()
 
-		# make sure these are *decreasing* so we can delete in order
-		cols = sorted(listifnot(self.to_column_number(cols)), reverse=True)
+	def write(self, it, tmp=False, lazy=False):
+		if not lazy:
+			it = list(it)
+		if tmp:
+			self._tmplines = it
+		else:
+			self._lines = it
 
-		def generate():
-			for parts in self.lines(parts=True):
-				for c in cols: 
-					del parts[c]
-				yield "\t".join(parts)
-			
-		self._lines = list(generate())
-
-		# and delete from the header
-		if self.header is not None:
-			for c in cols: 
-				del self.header[c]
-
-		if CLEAN_TMP:
-			self.rm_tmp()
+	def read(self, tmp=False):
+		if tmp:
+			return self._tmplines
+		else:
+			return self._lines
 		
 	def copy(self, path=None):
-		raise NotImplementedError
+		return deepcopy(self)
 	
 	def get_new_path(self):
 		raise NotImplementedError
 			
 	def mv_tmp(self):
 		"""
-			Move contents of the primarily list of lines to the tmp list of lines.
+			Move contents of the primary list of lines to the tmp list of lines.
 		"""
-		self._tmplines = deepcopy(self._lines)
-		del self._lines[:]
+		self._tmplines = self._lines
+		self._lines = []
 		
 	def rename(self, n):
 		raise NotImplementedError
@@ -139,196 +128,21 @@ class LineFileInMemory(LineFile):
 		"""
 			Delete the temporary list of lines.
 		"""
-		del self._tmplines[:]
+		self._tmplines = []
 
 	def cp(self, f): 
 		raise NotImplementedError
-	
-		
-	def clean(self, columns=None, lower=True, alphanumeric=True, count_columns=True, nounderscores=True, echo_toss=False, filter_fn=None, modifier_fn=None):
-		"""
-			This does several things:
-				columns - how many cols should there be? If None, then we use the first line
-				lower - convert to lowercase
-				alphanumeric - toss lines with non-letter category characters (in unicode)
-				count_columns - if True, we throw out rows that don't have the same number of columns as the first line
-				nounderscores - if True, we remove everything matchin _[^\s]\s -> " "
-				echo_toss - tell us who was removed
-				already_tabbed - if true, we know to split cols on tabs; otherwise whitespace
-				filter_fn - User-provided boolean filtering function
-				modifier_fn - User-provided function to modify the line (downcase etc)
-		"""
-		self.mv_tmp()
-		
-		def generate(columns=columns):
-			toss_count = 0
-			total_count = 0
-			for l in self.lines():
-				total_count += 1
-				keep = True
-
-				if filter_fn and not filter_fn(l):
-					keep = False
-					if echo_toss:
-						print >>sys.stderr, "# Tossed filtered line:", l
-					toss_count += 1
-					continue
-			
-				if alphanumeric: # if we require alphanumeric
-					collapsed = re_collapser.sub("", l) # replace digits and spaces with nothing so allw e have are characters
-					for k in collapsed:
-						n = unicodedata.category(k)
-						if n == "Ll" or n == "Lu": pass
-						else: 
-							toss_count+=1
-							keep = False # throw out lines with non-letter categories
-							if echo_toss: 
-								print >>sys.stderr, "# Tossed line that was non-alphanumeric:", l
-							break
-			
-				if not keep: 
-					continue # we can skip early here if we want
-
-				# check the number of columns
-				if count_columns: 
-					cols = l.split()
-					cn = len(cols)
-					if columns is None: 
-						columns = cn # save the first line
-				
-					if columns != cn or any(not non_whitespace_matcher.search(ci) for ci in cols):
-						keep = False
-						toss_count+=1
-						if echo_toss: print >>sys.stderr, "# Tossed line with bad column count (",cn,"):", l
-				
-				# and print if we should keep it
-				if keep: 
-
-					# clean up according to specs
-					if nounderscores: 
-						l = re_underscore.sub("", l)			
-					if lower: 
-						l = l.lower()
-					if modifier_fn:
-						l = modifier_fn(l)
-					
-					yield l
-
-			print >>sys.stderr, "# Clean tossed %i of %i lines, or %s percent" % (toss_count, total_count, str((toss_count/total_count) * 100))
-			
-		self._lines = list(generate())
-
-		if CLEAN_TMP: 
-			self.rm_tmp()
-		
-	def restrict_vocabulary(self, cols, vocabulary, invert=False):
-		"""
-			Make a new version where "cols" contain only words matching the vocabulary
-			OR if invert=True, throw out anything matching cols
-		"""
-		
-		cols = listifnot(self.to_column_number(cols))
-		
-		vocabulary = set(vocabulary)
-		
-		self.mv_tmp()
-		def generate():
-			for l in self.lines():
-				parts = l.split()
-				keep = True
-				for c in cols: # for each thing to check, check it!
-					if (parts[c] in vocabulary) is invert:
-						keep = False
-						break
-				if keep: 
-					yield l
-
-		self._lines = list(generate())
-		if CLEAN_TMP: 
-			self.rm_tmp()
-	
-	def resum_equal(self, keys, sumkeys, assert_sorted=True, keep_all=False):
-		"""
-			Takes all rows which are equal on the keys and sums the sumkeys, overwriting them. 
-			Anything not in keys or sumkeys, there are only guarantees for if keep_all=True.
-		"""
-		
-		keys    = listifnot(self.to_column_number(keys))
-		sumkeys = listifnot(self.to_column_number(sumkeys))
-		
-		if assert_sorted: # must call before we mv_tmp
-			self.assert_sorted(keys,  allow_equal=True)
-		
-		self.mv_tmp()
-		
-                def generate():
-                        for compkey, lines in self.groupby(keys):
-                                if keep_all:
-                                        lines = list(lines) # load into memory; otherwise we can only iterate through once
-                                sums = Counter()
-                                for parts in lines:
-                                        for sumkey in sumkeys:
-                                                try:
-                                                        sums[sumkey] += int(parts[sumkey])
-                                                except IndexError:
-                                                        print >>sys.stderr, "IndexError:", parts, sumkeys
-                                if keep_all:
-                                        for parts in lines:
-                                                for sumkey in sumkeys:
-                                                        parts[sumkey] = str(sums[sumkey])
-                                                yield "\t".join(parts)
-                                else:
-                                        for sumkey in sumkeys:
-                                                parts[sumkey] = str(sums[sumkey]) # "parts" is the last line
-                                        yield "\t".join(parts)
-		
-		self._lines = list(generate())
-		if CLEAN_TMP: 
-			self.rm_tmp()
 		
 	def cat(self): 
 		raise NotImplementedError
 
 	def delete(self):
-		del self._lines[:]
-		del self._tmplines[:]
+		self._lines = []
+		self._tmplines = []
 
 	def delete_tmp(self):
-		del self._tmplines[:]
+		self._tmplines = []
 
-	def copy_column(self, newname, key):
-		""" Copy a column. """
-		self.make_column(newname, lambda x: x, key)
-		
-	def make_column(self, newname, function, keys):
-		"""
-			Make a new column as some function of the other rows
-			make_column("unigram", lambda x,y: int(x)+int(y), "cnt1 cnt2")
-			will make a column called "unigram" that is the sum of cnt1 cnt2
-			
-			NOTE: The function MUST take strings and return strings, or else we die
-			
-			newname - the name for the new column. You can pass multiple if function returns tab-sep strings
-			function - a function of other row arguments. Must return strings
-			args - column names to get the arguments
-		"""
-		
-		self.mv_tmp()
-		
-		keys = listifnot( self.to_column_number(keys) )
-		
-		def generate():
-			for line in self.lines():
-				parts = line.split()
-				yield line+"\t"+function(*[parts[i] for i in keys])
-			
-			self.header.extend(listifnot(newname))
-		
-		self._lines = list(generate())
-
-		if CLEAN_TMP: 
-			self.rm_tmp()
-		
 	def sort(self, keys, lines=None, dtype=unicode, reverse=False):
 		"""
 			Sort me by my keys.
@@ -344,7 +158,7 @@ class LineFileInMemory(LineFile):
 			sort_key.append(l) # the second element is the line
 			return sort_key
 
-		self._lines = sorted(self._lines, key=get_sort_key)
+		self.write(sorted(self.lines(tmp=False), key=get_sort_key))
 
 		
 	def merge(self, other, keys1, tocopy, keys2=None, newheader=None, assert_sorted=True):
@@ -420,103 +234,23 @@ class LineFileInMemory(LineFile):
 
 
 		if tmp: 
-			it = iter(self._tmplines)
+			it = self.read(tmp=True)
 		else:
-			it = iter(self._lines)
+			it = self.read()
 
-		for line in it:
-			line = line.strip()
-			if parts: 
-				yield line.split()
-			else:     
-				yield line
+		# for obscure reasons, we have to return an inline generator
+		# so the garbage collector will maintain a reference to it.
+		if parts:
+			return (line.strip().split() for line in it) 
+		else:
+			return (line.strip() for line in it)
 			
-		if yieldfinal: 
-			yield ''
+#		if yieldfinal: 
+#			yield ''
 
-	def groupby(self, keys, tmp=True):
-		"""
-                       A groupby iterator matching the given keys.
-
-                """
-                keys = listifnot(self.to_column_number(keys))
-                key_fn = lambda parts: tuple(parts[x] for x in keys)
-                return itertools.groupby(self.lines(parts=True, tmp=tmp), key_fn)
-		
 	def __len__(self):
 		"""
 			How many total lines?
 		"""
-		return len(self._lines)
+		return len(list(self._lines))
 		
-	def subsample_lines(self, N=1000000):
-		"""
-			Make me a smaller copy of myself by randomly subsampling *lines*
-			not according to counts. This is useful for creating a temporary
-			file 
-			NOTE: N must fit into memory
-		"""
-		raise NotImplementedError
-		self.mv_tmp()
-		
-		# We'll use a reservoir sampling algorithm
-		sample = []
-		
-		for idx, line in enumerate(self.lines(tmp=True)):
-			if idx < N: 
-				sample.append(line)
-			else:
-				r = random.randrange(idx+1)
-				if r < N: sample[r] = line
-		
-		# now output the sample
-		o = codecs.open(self.path, 'w', ENCODING)
-		for line in sample: print >>o, line
-		o.close()
-	
-	def sum_column(self, col, cast=int, tmp=True):
-		
-		col = self.to_column_number(col)
-		return sum(cast(parts[col]) for parts in self.lines(parts=True, tmp=tmp))
-		
-	def downsample_tokens(self, N, ccol, keep_zero_counts=False):
-		"""
-			Subsample myself via counts with the existing probability distribution.
-			- N - the total sample size we end up with.
-			- ccol - the column we use to estimate probabilities. Unnormalized, non-log probs (e.g. counts)
-			
-			NOTE: this assumes a multinomial on trigrams, which may not be accurate. If you started from a corpus, this will NOT in general keep
-			counts consistent with a corpus. 
-			
-			This uses a conditional beta distribution, once for each line for a total of N.
-			See pg 12 of w3.jouy.inra.fr/unites/miaj/public/nosdoc/rap2012-5.pdf
-		"""
-		raise NotImplementedError
-		self.header.extend(ccol)
-		ccol = self.to_column_number(ccol)
-		
-		self.mv_tmp()
-		
-		Z = self.sum_column(ccol, tmp=True) ## TODO: CREATE SUM_COLUMN, giving the normalizer for the probability (counts)
-		
-		o = codecs.open(self.path, "w", ENCODING)
-		for parts in self.lines(parts=True, tmp=True):
-			
-			cnt = int(parts[ccol]) 
-			
-			# Randomly sample
-			if N > 0: newcnt = numpy.random.binomial(N,float(cnt)/float(Z))
-			else:     newcnt = 0
-			
-			# Update the conditional multinomial
-			N = N-newcnt # samples to draw
-			Z = Z-cnt    # normalizer for everything else
-			
-			parts[ccol] = str(newcnt) # update this
-			
-			if keep_zero_counts or newcnt > 0:
-				print >>o, '\t'.join(parts)
-			
-		o.close()
-
-

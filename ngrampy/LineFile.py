@@ -60,6 +60,7 @@ except ImportError:
 		pass
 
 from debug import *
+from helpers import *
 
 # A temporary file like /tmp
 NGRAMPY_DEFAULT_PATH = "/tmp" #If no path is specified, we go here
@@ -74,63 +75,6 @@ sys.stdout = codecs.getwriter(ENCODING)(sys.stdout)
 sys.stderr = codecs.getwriter(ENCODING)(sys.stderr)
 
 IO_BUFFER_SIZE = int(100e6) # approx size of input buffer 
-
-# Some friendly Regexes. May need to change encoding here for other encodings?
-re_SPACE = re.compile(r"\s", re.UNICODE) # for splitting on spaces, etc.
-re_underscore = re.compile(r"_[A-Za-z\-\_]+", re.UNICODE) # for filtering out numbers and whitespace
-re_collapser  = re.compile(r"[\d\s]", re.UNICODE) # for filtering out numbers and whitespace
-non_whitespace_matcher = re.compile(r"[^\s]", re.UNICODE)
-		
-# # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
-# # Some helpful functions
-# # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
-
-def read_and_parse(inn, keys):
-		"""
-			Read a line and parse it by tabs, returning the line, the tab parts, and some columns
-		"""
-		line = inn.readline().strip()
-		if not line: return line, None, None
-		else:
-			parts = line.split()
-			return line, parts, "\t".join([parts[x] for x in keys])
-
-def systemcall(x, echo=ECHO_SYSTEM):
-	"""
-		Call System functions but echo if we want
-	"""
-	if ECHO_SYSTEM: 
-		print >>sys.stderr, x
-	os.system(x)
-
-def ifelse(x, y, z):
-	return y if x else z
-		
-def listifnot(x):
-	return x if isinstance(x, list) else [x]
-	
-def myassert(tf, s):
-	if not tf: 
-		print >>sys.stderr, "*** Assertion fail: ",s
-	assert tf
-	
-def log2(x): 
-	return log(x,2.)
-
-def c2H(counts):
-	""" Normalize counts and compute entropy	
-
-	Counts can be a generator.
-	Doesn't depend on numpy.
-
-	"""
-	total = 0.0
-	clogc = 0.0
-	for c in counts:
-		total += c
-		clogc += c * log(c)
-	return -(clogc/total - log(total)) / log(2)
-
 
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 # # Class definition
@@ -188,9 +132,34 @@ class LineFile(object):
 			self.header = header.split()
 		else:
 			self.header = header
+
+	def write(self, it, tmp=False):
+		if tmp:
+			filename = self.tmppath
+		else:
+			filename = self.path
+
+		with codecs.open(filename, 'wb', ENCODING, 
+				 'strict', IO_BUFFER_SIZE) as outfile:
+				for item in it:
+					print >>outfile, item
+
+	def read(self, tmp=False):
+		if tmp:
+			filename = self.tmppath
+		else:
+			filename = self.path
+
+		with codecs.open(filename, 'rb', ENCODING,
+				 'strict', IO_BUFFER_SIZE) as infile:
+			for line in infile:
+				yield line
 		
-	def setheader(self, *x): self.header = x
-	def rename_column(self, x, v): self.header[self.to_column_number(x)] = v
+	def setheader(self, *x): 
+		self.header = x
+
+	def rename_column(self, x, v): 
+		self.header[self.to_column_number(x)] = v
 		
 	def to_column_number(self, x):
 		"""
@@ -226,12 +195,15 @@ class LineFile(object):
 		cols = sorted(listifnot(self.to_column_number(cols)), reverse=True)
 		
 		self.mv_tmp()
-		with codecs.open(self.path, "w", ENCODING) as o: 
-			for parts in self.lines(parts=True):
+		lines = self.lines(parts=True)
+		def generate_deleted(lines=lines):
+			for parts in lines:
 				for c in cols: 
 					del parts[c]
-				print >>o, "\t".join(parts)
-			
+				yield "\t".join(parts)
+		
+		self.write(generate_deleted())
+
 		# and delete from the header
 		if self.header is not None:
 			for c in cols: del self.header[c]
@@ -311,95 +283,98 @@ class LineFile(object):
 				filter_fn - User-provided boolean filtering function
 				modifier_fn - User-provided function to modify the line (downcase etc)
 		"""
-		self.mv_tmp()
-		
-		toss_count = 0
-		total_count = 0
-		
-		o = codecs.open(self.path, "w", ENCODING)
-		
-		for l in self.lines():
-			total_count += 1
-			keep = True
+                self.mv_tmp()
 
-			if filter_fn and not filter_fn(l):
-				keep = False
-				if echo_toss:
-					print >>sys.stderr, "# Tossed filtered line:", l
-				toss_count += 1
-				continue
-			
-			if alphanumeric: # if we require alphanumeric
-				collapsed = re_collapser.sub("", l) # replace digits and spaces with nothing so allw e have are characters
-				for k in collapsed:
-					n = unicodedata.category(k)
-					if n == "Ll" or n == "Lu": pass
-					else: 
-						toss_count+=1
-						keep = False # throw out lines with non-letter categories
-						if echo_toss: 
-							print >>sys.stderr, "# Tossed line that was non-alphanumeric:", l
-						break
-			
-			if not keep: 
-				continue # we can skip early here if we want
+                lines = self.lines()
+                def generate_cleaned(columns=columns, lines=lines):
+                        toss_count = 0
+                        total_count = 0
+                        for l in lines: # POINTER TROUBLE!
+                                total_count += 1
+                                keep = True
 
-			# check the number of columns
-			if count_columns: 
-				cols = l.split()
-				cn = len(cols)
-				if columns is None: 
-					columns = cn # save the first line
-				
-				if columns != cn or any(not non_whitespace_matcher.search(ci) for ci in cols):
-					keep = False
-					toss_count+=1
-					if echo_toss: print >>sys.stderr, "# Tossed line with bad column count (",cn,"):", l
-				
-			# and print if we should keep it
-			if keep: 
+                                if filter_fn and not filter_fn(l):
+                                        keep = False
+                                        if echo_toss:
+                                                print >>sys.stderr, "# Tossed filtered line:", l
+                                        toss_count += 1
+                                        continue
 
-				# clean up according to specs
-				if nounderscores: 
-					l = re_underscore.sub("", l)			
-				if lower: 
-					l = l.lower()
-				if modifier_fn:
-					l = modifier_fn(l)
-					
-				print >>o, l
+                                if alphanumeric: # if we require alphanumeric
+                                        collapsed = re_collapser.sub("", l) # replace digits and spaces with nothing so allw e have are characters
+                                        for k in collapsed:
+                                                n = unicodedata.category(k)
+                                                if n == "Ll" or n == "Lu": pass
+                                                else:
+                                                        toss_count+=1
+                                                        keep = False # throw out lines with non-letter categories
+                                                        if echo_toss:
+                                                                print >>sys.stderr, "# Tossed line that was non-alphanumeric:", l
+                                                        break
 
-			
-		o.close()
-		
-		print >>sys.stderr, "# Clean tossed %i of %i lines, or %s percent" % (toss_count, total_count, str((toss_count/total_count) * 100))
-		
-		if CLEAN_TMP: 
-			self.rm_tmp()
-		
+                                if not keep:
+                                        continue # we can skip early here if we want
+
+                                # check the number of columns
+                                if count_columns:
+                                        cols = l.split()
+                                        cn = len(cols)
+                                        if columns is None:
+                                                columns = cn # save the first line
+
+                                        if columns != cn or any(not non_whitespace_matcher.search(ci) for ci in cols):
+                                                keep = False
+                                                toss_count+=1
+                                                if echo_toss: print >>sys.stderr, "# Tossed line with bad column count (",cn,"):", l
+
+                                # and print if we should keep it
+                                if keep:
+
+                                        # clean up according to specs
+                                        if nounderscores:
+                                                l = re_underscore.sub("", l)
+                                        if lower:
+                                                l = l.lower()
+                                        if modifier_fn:
+                                                l = modifier_fn(l)
+
+                                        yield l
+
+                        print >>sys.stderr, "# Clean tossed %i of %i lines, or %s percent" % (toss_count, total_count, str((toss_count/total_count) * 100))
+
+                self.write(generate_cleaned())
+
+                if CLEAN_TMP:
+                        self.rm_tmp()
+
+
 	def restrict_vocabulary(self, cols, vocabulary, invert=False):
 		"""
 			Make a new version where "cols" contain only words matching the vocabulary
 			OR if invert=True, throw out anything matching cols
 		"""
 		
-		cols = listifnot(self.to_column_number(cols))
-		
-		vocabulary = set(vocabulary)
-		
-		self.mv_tmp()
-		o = codecs.open(self.path, "w", ENCODING)
-		for l in self.lines():
-			parts = l.split()
-			keep = True
-			for c in cols: # for each thing to check, check it!
-				if (parts[c] in vocabulary) is invert:
-					keep = False
-					break
-			if keep: print >>o, l
-		o.close()
-		
-		if CLEAN_TMP: self.rm_tmp()
+                cols = listifnot(self.to_column_number(cols))
+
+                vocabulary = set(vocabulary)
+
+                self.mv_tmp()
+                lines = self.lines()
+                def generate_restricted(lines=lines):
+                        for l in lines:
+                                parts = l.split()
+                                keep = True
+                                for c in cols: # for each thing to check, check it!
+                                        if (parts[c] in vocabulary) is invert:
+                                                keep = False
+                                                break
+                                if keep:
+                                        yield l
+
+                self.write(generate_restricted())
+
+                if CLEAN_TMP:
+                        self.rm_tmp()
 	
 	def make_marginal_column(self, newname, keys, sumkey):
 		self.copy_column(newname, sumkey)
@@ -411,38 +386,39 @@ class LineFile(object):
 			Takes all rows which are equal on the keys and sums the sumkeys, overwriting them. 
 			Anything not in keys or sumkeys, there are only guarantees for if keep_all=True.
 		"""
-		
-		keys    = listifnot(self.to_column_number(keys))
-		sumkeys = listifnot(self.to_column_number(sumkeys))
-		
-		if assert_sorted: # must call before we mv_tmp
-			self.assert_sorted(keys,  allow_equal=True)
-		
-		self.mv_tmp()
-		
-		o = codecs.open(self.path, "w", ENCODING)
-                for compkey, lines in self.groupby(keys):
-			if keep_all:
-				lines = list(lines) # load into memory; otherwise we can only iterate through once
-			sums = Counter()
-			for parts in lines:
-				for sumkey in sumkeys:
-					try:
-						sums[sumkey] += int(parts[sumkey])
-					except IndexError:
-						print >>sys.stderr, "IndexError:", parts, sumkeys
-			if keep_all:
-				for parts in lines:
-					for sumkey in sumkeys:
-						parts[sumkey] = str(sums[sumkey])
-					print >>o, "\t".join(parts)
-			else:
-				for sumkey in sumkeys:
-					parts[sumkey] = str(sums[sumkey]) # "parts" is the last line
-				print >>o, "\t".join(parts)
-		
-		o.close()
-		if CLEAN_TMP: self.rm_tmp()
+                keys    = listifnot(self.to_column_number(keys))
+                sumkeys = listifnot(self.to_column_number(sumkeys))
+
+                if assert_sorted: # must call before we mv_tmp
+                        self.assert_sorted(keys,  allow_equal=True)
+
+                self.mv_tmp()
+
+                groups = self.groupby(keys)
+                def generate_resummed(groups=groups):
+                        for compkey, lines in groups:
+                                if keep_all:
+                                        lines = list(lines) # load into memory; otherwise we can only iterate through once
+                                sums = Counter()
+                                for parts in lines:
+                                        for sumkey in sumkeys:
+                                                try:
+                                                        sums[sumkey] += int(parts[sumkey])
+                                                except IndexError:
+                                                        print >>sys.stderr, "IndexError:", parts, sumkeys
+                                if keep_all:
+                                        for parts in lines:
+                                                for sumkey in sumkeys:
+                                                        parts[sumkey] = str(sums[sumkey])
+                                                yield "\t".join(parts)
+                                else:
+                                        for sumkey in sumkeys:
+                                                parts[sumkey] = str(sums[sumkey]) # "parts" is the last line
+                                        yield "\t".join(parts)
+
+                self.write(generate_resummed())
+                if CLEAN_TMP:
+                        self.rm_tmp()		
 		
 	def assert_sorted(self, keys, dtype=unicode, allow_equal=False):
 		"""
@@ -504,22 +480,22 @@ class LineFile(object):
 			function - a function of other row arguments. Must return strings
 			args - column names to get the arguments
 		"""
-		
-		self.mv_tmp()
-		
-		keys = listifnot( self.to_column_number(keys) )
-		
-		o = codecs.open(self.path, "w", ENCODING)
+                self.mv_tmp()
 
-		for line in self.lines():
-			parts = line.split()
-			print >>o, line+"\t"+function(*[parts[i] for i in keys])
-			
-		self.header.extend(listifnot(newname))
-		o.close()
-		
-		if CLEAN_TMP: 
-			self.rm_tmp()
+                keys = listifnot( self.to_column_number(keys) )
+
+                lines = self.lines()
+                def generate_new_col(lines=lines):
+                        for line in lines:
+                                parts = line.split()
+                                yield line+"\t"+function(*[parts[i] for i in keys])
+
+                        self.header.extend(listifnot(newname))
+
+                self.write(generate_new_col())
+
+                if CLEAN_TMP:
+                        self.rm_tmp()
 		
 	def sort(self, keys, lines=SORT_DEFAULT_LINES, dtype=unicode, reverse=False):
 		"""
@@ -542,7 +518,8 @@ class LineFile(object):
 		
 		# a generator to hand back lines of a file and keys for sorting
 		def yield_lines(f):
-			for l in codecs.open(f, "r", ENCODING): yield get_sort_key(l.strip())
+			for l in codecs.open(f, "r", ENCODING): 
+				yield get_sort_key(l.strip())
 				
 		# Map a line to sort keys (e.g. respecting dtype, etc) ; we use the fact that python will sort arrays (yay)
 		def get_sort_key(l):
@@ -557,23 +534,23 @@ class LineFile(object):
 
 			if not l or len(current_lines) >= lines:
 				sort_tmp_path = self.path+".sorted."+str(temp_id)
-				o = codecs.open(sort_tmp_path, 'w', ENCODING)
-				print >>o, "\n".join(sorted(current_lines, key=get_sort_key))
-				o.close()
+				with codecs.open(sort_tmp_path, 'wb', ENCODING) as o:
+					print >>o, "\n".join(sorted(current_lines, key=get_sort_key))
 				
 				sorted_tmp_files.append(sort_tmp_path)
 				
 				current_lines = []
 				temp_id += 1
 			
-			if not l: break
-			else: current_lines.append(l)
+			if not l: 
+				break
+			else: 
+				current_lines.append(l)
 		
 		# okay now go through and merge sort -- use this cool heapq merging trick!
-		o = codecs.open(self.path, "w", ENCODING)
-		for x in heapq.merge(*map(yield_lines, sorted_tmp_files)):
-			print >>o, x[-1] # the last item is the line itself, everything else is sort keys
-		o.close()
+		with codecs.open(self.path, "w", ENCODING) as o:
+			for x in heapq.merge(*map(yield_lines, sorted_tmp_files)):
+				print >>o, x[-1] # the last item is the line itself, everything else is sort keys
 		
 		# clean up
 		for f in sorted_tmp_files: 
@@ -728,24 +705,17 @@ class LineFile(object):
 			- yieldfinal - give back a final '' 
 		"""
 		
-		if tmp:	inn = codecs.open(self.tmppath, 'r', ENCODING, 'strict', IO_BUFFER_SIZE) # Very much faster than line buffering!
-		else:   inn = codecs.open(self.path,    'r', ENCODING, 'strict', IO_BUFFER_SIZE)
-		
-		#text = inn.readlines(IO_BUFFER_SIZE)
-		#while text != []:
-			#for line in text:
-				#line = line.strip()
-				#if parts: yield line.split()
-				#else:     yield line
-			#text = inn.readlines(IO_BUFFER_SIZE)
-				
-		for line in inn:
-			line = line.strip()
-			if parts: yield line.split()
-			else:     yield line
+		inn = self.read(tmp=tmp)
+
+		if parts:
+			for line in inn:
+				yield line.strip().split()
+		else:
+			for line in inn:
+				yield line.strip()
 			
-		if yieldfinal: yield ''
-		inn.close()
+		if yieldfinal: 
+			yield ''
 
 	def groupby(self, keys, tmp=True):
 		"""
@@ -786,9 +756,7 @@ class LineFile(object):
 				if r < N: sample[r] = line
 		
 		# now output the sample
-		o = codecs.open(self.path, 'w', ENCODING)
-		for line in sample: print >>o, line
-		o.close()
+		self.write(sample)
 	
 	def sum_column(self, col, cast=int, tmp=True):
 		
@@ -812,26 +780,29 @@ class LineFile(object):
 		
 		self.mv_tmp()
 		
-		Z = self.sum_column(ccol, tmp=True) ## TODO: CREATE SUM_COLUMN, giving the normalizer for the probability (counts)
+		Z = self.sum_column(ccol, tmp=True)
 		
-		o = codecs.open(self.path, "w", ENCODING)
-		for parts in self.lines(parts=True, tmp=True):
+		lines = self.lines(parts=True, tmp=True)
+		def generate_downsampled(lines=lines):
+			for parts in self.lines(parts=True, tmp=True):
+				
+				cnt = int(parts[ccol]) 
 			
-			cnt = int(parts[ccol]) 
+				# Randomly sample
+				if N > 0: 
+					newcnt = numpy.random.binomial(N,float(cnt)/float(Z))
+				else:     
+					newcnt = 0
 			
-			# Randomly sample
-			if N > 0: newcnt = numpy.random.binomial(N,float(cnt)/float(Z))
-			else:     newcnt = 0
+				# Update the conditional multinomial
+				N = N-newcnt # samples to draw
+				Z = Z-cnt    # normalizer for everything else
 			
-			# Update the conditional multinomial
-			N = N-newcnt # samples to draw
-			Z = Z-cnt    # normalizer for everything else
+				parts[ccol] = str(newcnt) # update this
+				
+				if keep_zero_counts or newcnt > 0:
+					yield '\t'.join(parts)
 			
-			parts[ccol] = str(newcnt) # update this
-			
-			if keep_zero_counts or newcnt > 0:
-				print >>o, '\t'.join(parts)
-			
-		o.close()
+		self.write(generate_downsampled())
 
 
