@@ -317,6 +317,7 @@ class LineFile(object):
 
                                 if alphanumeric: # if we require alphanumeric
                                         collapsed = re_collapser.sub("", l) # replace digits and spaces with nothing so allw e have are characters
+					collapsed = re_sentence_boundary.sub("", collapsed)
                                         for k in collapsed:
                                                 n = unicodedata.category(k)
                                                 if n == "Ll" or n == "Lu": pass

@@ -61,7 +61,7 @@ def test_clean():
     G = LineFile("tests/smallcorpus-malformed.txt.bz2", header="foo bar baz qux", 
                  path="tests/tmp/testcorpus")
     G.clean(lower=True, alphanumeric=True, count_columns=False, echo_toss=True)
-    assert_equal(len(G), 8390)
+    assert_equal(len(G), 8562)
     G.delete()
 
     G = LineFile("tests/smallcorpus-malformed.txt.bz2", header="foo bar baz qux", 
@@ -93,7 +93,7 @@ def test_clean_lazy():
     G = LineFile("tests/smallcorpus-malformed.txt.bz2", header="foo bar baz qux", 
                  path="tests/tmp/testcorpus")
     G.clean(lower=True, alphanumeric=True, count_columns=False, echo_toss=True, lazy=True)
-    assert_equal(len(G), 8390)
+    assert_equal(len(G), 8562)
     G.delete()
 
     G = LineFile("tests/smallcorpus-malformed.txt.bz2", header="foo bar baz qux", 
@@ -242,7 +242,7 @@ def test_clean_in_memory():
     G = LineFileInMemory("tests/smallcorpus-malformed.txt.bz2", header="foo bar baz qux", 
                  path="tests/tmp/testcorpus")
     G.clean(lower=True, alphanumeric=True, count_columns=False, echo_toss=True)
-    assert_equal(len(G), 8390)
+    assert_equal(len(G), 8562)
     G.delete()
 
     G = LineFileInMemory("tests/smallcorpus-malformed.txt.bz2", header="foo bar baz qux", 
