@@ -59,14 +59,12 @@ def c2H(counts):
         return -(clogc/total - log(total)) / log(2)
 
 def chunks(iterable, size):
-	it = iter(iterable)
-	it_next = it.next
+	it_next = iter(iterable).next
 	so_far = []
-	so_far_append = so_far.append
 	while True:
 		try:
 			for _ in xrange(size):
-				so_far_append(it_next())
+				so_far.append(it_next())
 			yield so_far
 			so_far = []
 		except StopIteration:

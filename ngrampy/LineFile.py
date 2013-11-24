@@ -45,7 +45,7 @@ import unicodedata
 import heapq
 import shutil
 import random
-import codecs # for writing utf-8
+import codecs
 import itertools
 from math import log
 from collections import Counter
@@ -134,9 +134,11 @@ class LineFile(object):
 			self.header = header
 
 		self._lazy_lines = None
+		self._lazy_lines_exist = False
 
 	def write(self, it, tmp=False, lazy=False):
 		if lazy:
+			self._lazy_lines_exist = True
 			self._lazy_lines = it
 		else:
 			if tmp:
@@ -144,26 +146,26 @@ class LineFile(object):
 			else:
 				filename = self.path
 
-			with codecs.open(filename, 'wb', ENCODING, 
-					 'strict', IO_BUFFER_SIZE) as outfile:
+			with codecs.open(filename, mode='w', encoding=ENCODING, 
+					 errors='strict', buffering=IO_BUFFER_SIZE) as outfile:
 				for item in it:
 					print >>outfile, item
+						
 
 	def read(self, tmp=False):
-		if tmp and self._lazy_lines:
-			for item in self._lazy_lines:
-				yield item
-			self._lazy_lines = None
+		if self._lazy_lines_exist:
+			self._lazy_lines_exist = False
+			return self._lazy_lines
 
-		if tmp:
-			filename = self.tmppath
 		else:
-			filename = self.path
+			if tmp:
+				filename = self.tmppath
+			else:
+				filename = self.path
+			# we can rely on garbage collection to close this file appropriately
+			return codecs.open(filename, mode='r', encoding=ENCODING, 
+				       errors='strict', buffering=IO_BUFFER_SIZE) 
 
-		with codecs.open(filename, 'rb', ENCODING,
-				 'strict', IO_BUFFER_SIZE) as infile:
-			for line in infile:
-				yield line
 		
 	def setheader(self, *x): 
 		self.header = x
@@ -243,7 +245,9 @@ class LineFile(object):
 			Move myself to my temporary file, so that I can cat to my self.path
 		"""
 		#print "# >>", self.path, self.tmppath
-		shutil.move(self.path, self.tmppath)
+		if not self._lazy_lines_exist:
+			shutil.move(self.path, self.tmppath)
+			
 		
 	def rename(self, n):
 		shutil.move(self.path, n)
@@ -280,7 +284,8 @@ class LineFile(object):
 			
 
 		
-	def clean(self, columns=None, lower=True, alphanumeric=True, count_columns=True, nounderscores=True, echo_toss=False, filter_fn=None, modifier_fn=None):
+	def clean(self, columns=None, lower=True, alphanumeric=True, count_columns=True, nounderscores=True, echo_toss=False, filter_fn=None, modifier_fn=None,
+		  lazy=False):
 		"""
 			This does several things:
 				columns - how many cols should there be? If None, then we use the first line
@@ -352,7 +357,7 @@ class LineFile(object):
 
                         print >>sys.stderr, "# Clean tossed %i of %i lines, or %s percent" % (toss_count, total_count, str((toss_count/total_count) * 100))
 
-                self.write(generate_cleaned())
+                self.write(generate_cleaned(), lazy=lazy)
 
                 if CLEAN_TMP:
                         self.rm_tmp()
@@ -386,12 +391,12 @@ class LineFile(object):
                 if CLEAN_TMP:
                         self.rm_tmp()
 	
-	def make_marginal_column(self, newname, keys, sumkey):
-		self.copy_column(newname, sumkey)
+	def make_marginal_column(self, newname, keys, sumkey, lazy=False):
+		self.copy_column(newname, sumkey, lazy=True)
 		self.sort(keys)
-		self.resum_equal(keys, newname, keep_all=True, assert_sorted=False)
+		self.resum_equal(keys, newname, keep_all=True, assert_sorted=False, lazy=lazy)
 	
-	def resum_equal(self, keys, sumkeys, assert_sorted=True, keep_all=False):
+	def resum_equal(self, keys, sumkeys, assert_sorted=True, keep_all=False, lazy=False):
 		"""
 			Takes all rows which are equal on the keys and sums the sumkeys, overwriting them. 
 			Anything not in keys or sumkeys, there are only guarantees for if keep_all=True.
@@ -426,7 +431,7 @@ class LineFile(object):
                                                 parts[sumkey] = str(sums[sumkey]) # "parts" is the last line
                                         yield "\t".join(parts)
 
-                self.write(generate_resummed())
+                self.write(generate_resummed(), lazy=lazy)
                 if CLEAN_TMP:
                         self.rm_tmp()		
 		
@@ -474,11 +479,26 @@ class LineFile(object):
 	def delete_tmp(self):
 		os.remove(self.tmppath)
 
-	def copy_column(self, newname, key):
+	def copy_column(self, newname, key, lazy=False):
 		""" Copy a column. """
-		self.make_column(newname, lambda x: x, key)
+                self.mv_tmp()
+
+                key = self.to_column_number(key)
+
+                lines = self.lines()
+                def generate_new_col(lines=lines):
+                        for line in lines:
+                                parts = line.split()
+                                yield line+"\t"+parts[key]
+
+		self.header.extend(listifnot(newname))
+
+                self.write(generate_new_col(), lazy=lazy)
+
+                if CLEAN_TMP:
+                        self.rm_tmp()
 		
-	def make_column(self, newname, function, keys):
+	def make_column(self, newname, function, keys, lazy=False):
 		"""
 			Make a new column as some function of the other rows
 			make_column("unigram", lambda x,y: int(x)+int(y), "cnt1 cnt2")
@@ -500,9 +520,9 @@ class LineFile(object):
                                 parts = line.split()
                                 yield line+"\t"+function(*[parts[i] for i in keys])
 
-                        self.header.extend(listifnot(newname))
+		self.header.extend(listifnot(newname))
 
-                self.write(generate_new_col())
+                self.write(generate_new_col(), lazy=lazy)
 
                 if CLEAN_TMP:
                         self.rm_tmp()
@@ -527,8 +547,8 @@ class LineFile(object):
 
 		# a generator to hand back lines of a file and keys for sorting
 		def yield_lines(f):
-			with codecs.open(f, "r", ENCODING) as infile:
-				for l in codecs.open(f, "r", ENCODING): 
+			with codecs.open(f, "r", encoding=ENCODING) as infile:
+				for l in codecs.open(f, "r", encoding=ENCODING): 
 					yield get_sort_key(l.strip())
 				
 		# Map a line to sort keys (e.g. respecting dtype, etc); 
@@ -540,8 +560,8 @@ class LineFile(object):
 		
 		for chunk in chunks(self.lines(), num_lines):
 			sorted_tmp_path = self.path+".sorted."+str(temp_id)
-			with codecs.open(sorted_tmp_path, 'wb', ENCODING) as o:
-				print >>o, "\n".join(sorted(chunk, key=get_sort_key))
+			with codecs.open(sorted_tmp_path, 'w', encoding=ENCODING) as outfile:
+				print >>outfile, "\n".join(sorted(chunk, key=get_sort_key))
 			sorted_tmp_files.append(sorted_tmp_path)
 			temp_id += 1
 		
@@ -592,7 +612,7 @@ class LineFile(object):
 		line1, parts1, key1 = read_and_parse(in1, keys=keys1)
 		line2, parts2, key2 = read_and_parse(in2, keys=keys2)
 
-		def generate_merged():
+		def generate_merged(in1=in1, in2=in2):
 			while True:
 				if key1 == key2:
 					yield line1+"\t"+"\t".join(self.extract_columns(line2, keys=tocopy))
@@ -702,15 +722,10 @@ class LineFile(object):
 			- tmp -- do we iterate over path or tmp?
 			- parts - if true, we return an array that is split on tabs
 		"""
-		
-		inn = self.read(tmp=tmp)
-
 		if parts:
-			for line in inn:
-				yield line.strip().split()
+			return (line.strip().split() for line in self.read(tmp=tmp))
 		else:
-			for line in inn:
-				yield line.strip()
+			return (line.strip() for line in self.read(tmp=tmp))
 
 	def groupby(self, keys, tmp=True):
 		"""

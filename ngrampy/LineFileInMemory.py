@@ -161,31 +161,6 @@ class LineFileInMemory(LineFile):
 		self.write(sorted(self.lines(tmp=False), key=get_sort_key))
 
 		
-	#################################################################################################
-	# Iterators
-	
-	def lines(self, tmp=True, parts=False):
-		"""
-			Yield me a stripped version of each line of tmplines
-			
-			- tmp -- do we iterate over path or tmp?
-			- parts - if true, we return an array that is split on tabs
-		"""
-
-
-		if tmp: 
-			it = self.read(tmp=True)
-		else:
-			it = self.read()
-
-		# for obscure reasons, we have to return an inline generator
-		# so the garbage collector will maintain a reference to it.
-		if parts:
-			return (line.strip().split() for line in it) 
-		else:
-			return (line.strip() for line in it)
-			
-
 	def __len__(self):
 		"""
 			How many total lines?
