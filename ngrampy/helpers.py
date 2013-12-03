@@ -11,6 +11,7 @@ ECHO_SYSTEM = False
 re_SPACE = re.compile(r"\s", re.UNICODE) # for splitting on spaces, etc.
 re_underscore = re.compile(r"_[A-Za-z\-\_]+", re.UNICODE) # for filtering out numbers and whitespace
 re_collapser  = re.compile(r"[\d\s]", re.UNICODE) # for filtering out numbers and whitespace
+re_sentence_boundary = re.compile(r"</?S>", re.UNICODE)
 non_whitespace_matcher = re.compile(r"[^\s]", re.UNICODE)
 
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
