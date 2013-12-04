@@ -275,7 +275,7 @@ class LineFile(object):
 		filtered = itertools.ifilter(fn, self.lines(parts=parts))
 		self.write(filtered)
 
-	def map(self, fns, parts=False):
+	def map(self, fn, parts=False):
 		""" Apply function to all lines. """
 		mapped = itertools.imap(fn, self.lines(parts=parts))
 		self.write(mapped)
