@@ -60,16 +60,22 @@ def c2H(counts):
         return -(clogc/total - log(total)) / log(2)
 
 def chunks(iterable, size):
-	it_next = iter(iterable).next
-	so_far = []
-	while True:
-		try:
-			for _ in xrange(size):
-				so_far.append(it_next())
-			yield so_far
-			so_far = []
-		except StopIteration:
-			if so_far:
-				yield so_far
-			break
+	""" Chunks
 
+	Break an iterable into chunks of specified size.
+
+	Params:
+            iterable: An iterable
+	    size: An integer size.
+
+	Yields:
+            Tuples of size less than or equal to n, chunks of the input iterable.
+
+	Examples:
+        >>> lst = ['foo', 'bar', 'baz', 'qux', 'zim', 'cat', 'dog']
+        >>> list(chunks(lst, 3))
+        [('foo', 'bar', 'baz'), ('qux', 'zim', 'cat'), ('dog',)]
+
+	"""
+	it = iter(iterable)
+	return iter(lambda it=it, size=size: tuple(islice(it, size)), ())

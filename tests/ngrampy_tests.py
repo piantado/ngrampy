@@ -33,7 +33,7 @@ def test_basics():
 
     G.make_column("quux", lambda x, y, z, w: "cat", "foo bar baz qux")
     assert_equal(G.header, "foo bar baz qux quux".split())
-    for line in G.lines(parts=False, tmp=False):
+    for line in G.lines(parts=False):
         assert_equal(G.extract_columns(line, "quux"), ["cat"])
     
     G.delete_columns("quux")
@@ -41,7 +41,7 @@ def test_basics():
 
     G.copy_column("quux", "qux")
     assert_equal(G.header, "foo bar baz qux quux".split())
-    for line in G.lines(parts=False, tmp=False):
+    for line in G.lines(parts=False):
         assert_equal(G.extract_columns(line, "qux"), 
                      G.extract_columns(line, "quux")
                      )
@@ -76,7 +76,7 @@ def test_clean():
     G.clean(lower=True, alphanumeric=False, count_columns=False, echo_toss=True,
             modifier_fn=lambda x: "hello")
     assert_equal(len(G), len_G)
-    for line in G.lines(tmp=False, parts=False):
+    for line in G.lines():
         assert_equal(line, "hello")
     G.delete()
 
@@ -107,18 +107,18 @@ def test_clean_lazy():
                  path="tests/tmp/testcorpus")
     G.clean(lower=True, alphanumeric=False, count_columns=False, echo_toss=True,
             modifier_fn=lambda x: "hello", lazy=True)
-    for line in G.lines(tmp=False, parts=False):
+    for line in G.lines(parts=False):
         assert_equal(line, "hello")
     G.delete()
-    
+
 def test_resum_equal():
     G = LineFile("tests/smallcorpus.txt.bz2", header="foo bar baz qux", 
                  path="tests/tmp/testcorpus")
     len_G = len(G)
-    total = G.sum_column("qux", tmp=False)
+    total = G.sum_column("qux")
     G.resum_equal("foo", "qux", assert_sorted=True, keep_all=False)
     assert_equal(len(G), 1)
-    for line in G.lines(tmp=False):
+    for line in G.lines():
         assert_equal(int(G.extract_columns(line, "qux")[0]), total)
     G.delete()
 
@@ -126,7 +126,7 @@ def test_resum_equal():
                  path="tests/tmp/testcorpus")
     G.resum_equal("foo", "qux", assert_sorted=True, keep_all=True)
     assert_equal(len(G), len_G)
-    for line in G.lines(tmp=False):
+    for line in G.lines():
         assert_equal(int(G.extract_columns(line, "qux")[0]), total)
     G.delete()
 
@@ -134,18 +134,19 @@ def test_resum_equal_lazy():
     G = LineFile("tests/smallcorpus.txt.bz2", header="foo bar baz qux", 
                  path="tests/tmp/testcorpus")
     len_G = len(G)
-    total = G.sum_column("qux", tmp=False)
+    total = G.sum_column("qux")
     G.resum_equal("foo", "qux", assert_sorted=True, keep_all=False, lazy=True)
-    for line in G.lines(tmp=False):
+    for line in G.lines():
         assert_equal(int(G.extract_columns(line, "qux")[0]), total)
     G.delete()
 
     G = LineFile("tests/smallcorpus.txt.bz2", header="foo bar baz qux", 
                  path="tests/tmp/testcorpus")
     G.resum_equal("foo", "qux", assert_sorted=True, keep_all=True, lazy=True)
-    for line in G.lines(tmp=False):
+    for line in G.lines():
         assert_equal(int(G.extract_columns(line, "qux")[0]), total)
     G.delete()
+
 
 """
 def test_avg_surprisal():
@@ -161,6 +162,12 @@ def test_avg_surprisal():
 """
 
 def test_unicode():
+    """ test unicode
+    
+    replace every word in the test corpus with random unicode
+    and see if we get the same surprisal scores.
+
+    """
     def generate_random_unicode():
         for _ in xrange(5):
             yield unichr(random.choice((0x300, 0x9999)) + random.randint(0, 0xff))
@@ -170,13 +177,12 @@ def test_unicode():
     G = LineFile("tests/smallcorpus.txt.bz2", header="foo bar baz qux", 
                  path="tests/tmp/testcorpus")
     G.clean(lower=True, alphanumeric=False, count_columns=False, echo_toss=True, lazy=True)
-    G.make_marginal_column("quux", "foo bar", "qux", lazy=False)
+    G.make_marginal_column("quux", "foo bar", "qux", lazy=True)
     G.sort("baz")
     len_G = len(G)
     sum_counts = G.sum_column("quux")
     sum_surprisal = math.fsum(line[2] for line in G.average_surprisal("baz", "qux", "quux", assert_sorted=True))
     G.delete()
-
 
     G = LineFile("tests/smallcorpus.txt.bz2", header="foo bar baz qux", 
                  path="tests/tmp/testcorpus")
@@ -214,7 +220,7 @@ def test_basics_in_memory():
 
     G.make_column("quux", lambda x, y, z, w: "cat", "foo bar baz qux")
     assert_equal(G.header, "foo bar baz qux quux".split())
-    for line in G.lines(parts=False, tmp=False):
+    for line in G.lines(parts=False):
         assert_equal(G.extract_columns(line, "quux"), ["cat"])
     
     G.delete_columns("quux")
@@ -222,13 +228,10 @@ def test_basics_in_memory():
 
     G.copy_column("quux", "qux")
     assert_equal(G.header, "foo bar baz qux quux".split())
-    for line in G.lines(parts=False, tmp=False):
+    for line in G.lines(parts=False):
         assert_equal(G.extract_columns(line, "qux"), 
                      G.extract_columns(line, "quux")
                      )
-
-    G.delete()
-    assert_equal(len(G), 0)
 
 def test_clean_in_memory():
     G = LineFileInMemory("tests/smallcorpus-malformed.txt.bz2", header="foo bar baz qux", 
@@ -237,48 +240,42 @@ def test_clean_in_memory():
     G.clean(columns=4, lower=False, alphanumeric=False, count_columns=True, 
             nounderscores=False, echo_toss=True)
     assert_equal(len(G), len_G - 2)
-    G.delete()
 
     G = LineFileInMemory("tests/smallcorpus-malformed.txt.bz2", header="foo bar baz qux", 
                  path="tests/tmp/testcorpus")
     G.clean(lower=True, alphanumeric=True, count_columns=False, echo_toss=True)
     assert_equal(len(G), 8562)
-    G.delete()
 
     G = LineFileInMemory("tests/smallcorpus-malformed.txt.bz2", header="foo bar baz qux", 
                  path="tests/tmp/testcorpus")
     G.clean(lower=True, alphanumeric=True, count_columns=False, echo_toss=True,
             filter_fn=lambda x: False)
     assert_equal(len(G), 0)
-    G.delete()
 
     G = LineFileInMemory("tests/smallcorpus-malformed.txt.bz2", header="foo bar baz qux", 
                  path="tests/tmp/testcorpus")
     G.clean(lower=True, alphanumeric=False, count_columns=False, echo_toss=True,
             modifier_fn=lambda x: "hello")
     assert_equal(len(G), len_G)
-    for line in G.lines(tmp=False, parts=False):
+    for line in G.lines(parts=False):
         assert_equal(line, "hello")
-    G.delete()
 
 def test_resum_equal_in_memory():
     G = LineFileInMemory("tests/smallcorpus.txt.bz2", header="foo bar baz qux", 
                  path="tests/tmp/testcorpus")
     len_G = len(G)
-    total = G.sum_column("qux", tmp=False)
+    total = G.sum_column("qux")
     G.resum_equal("foo", "qux", assert_sorted=True, keep_all=False)
     assert_equal(len(G), 1)
-    for line in G.lines(tmp=False):
+    for line in G.lines():
         assert_equal(int(G.extract_columns(line, "qux")[0]), total)
-    G.delete()
 
     G = LineFileInMemory("tests/smallcorpus.txt.bz2", header="foo bar baz qux", 
                  path="tests/tmp/testcorpus")
     G.resum_equal("foo", "qux", assert_sorted=True, keep_all=True)
     assert_equal(len(G), len_G)
-    for line in G.lines(tmp=False):
+    for line in G.lines():
         assert_equal(int(G.extract_columns(line, "qux")[0]), total)
-    G.delete()
 
 def test_unicode_in_memory():
     def generate_random_unicode():
@@ -295,7 +292,6 @@ def test_unicode_in_memory():
     len_G = len(G)
     sum_counts = G.sum_column("quux")
     sum_surprisal = math.fsum(line[2] for line in G.average_surprisal("baz", "qux", "quux", assert_sorted=True))
-    G.delete()
 
 
     G = LineFileInMemory("tests/smallcorpus.txt.bz2", header="foo bar baz qux", 
@@ -322,7 +318,6 @@ def test_unicode_in_memory():
     assert_equal(sum_counts, sum_counts_scrambled)
     assert_equal(len_G, len(G))
     sum_surprisal_scrambled = math.fsum(line[2] for line in G.average_surprisal("baz", "qux", "quux", assert_sorted=True))
-    G.delete()
 
     assert_equal(sum_surprisal, sum_surprisal_scrambled)
 

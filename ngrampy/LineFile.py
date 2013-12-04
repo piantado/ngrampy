@@ -66,7 +66,6 @@ from helpers import *
 NGRAMPY_DEFAULT_PATH = "/tmp" #If no path is specified, we go here
 
 ECHO_SYSTEM = True # show the system calls we make?
-CLEAN_TMP = False # when we create temporary files, do we remove them when we're done? (sorting files are always removed)
 SORT_DEFAULT_LINES = 10000000 # how many lines to sorted at a time in RAM when we sort a large file?
 ENCODING = 'utf-8'
 
@@ -78,7 +77,7 @@ IO_BUFFER_SIZE = int(100e6) # approx size of input buffer
 
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 # # Class definition
-# # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
+# # # # # # # # # # # # # # # # # s# # # # # # # # # # # # # # # # # # # # # # # # # # #
 
 class LineFile(object):
 	
@@ -133,39 +132,27 @@ class LineFile(object):
 		else:
 			self.header = header
 
-		self._lazy_lines = None
-		self._lazy_lines_exist = False
+		self._lines = None
 
-	def write(self, it, tmp=False, lazy=False):
+	def write(self, it, lazy=False):
 		if lazy:
-			self._lazy_lines_exist = True
-			self._lazy_lines = it
+			self._lines = it
 		else:
-			if tmp:
-				filename = self.tmppath
-			else:
-				filename = self.path
-
-			with codecs.open(filename, mode='w', encoding=ENCODING, 
-					 errors='strict', buffering=IO_BUFFER_SIZE) as outfile:
+			filename = self.tmppath
+			with codecs.open(self.tmppath, mode='w', encoding=ENCODING, 
+				 errors='strict', buffering=IO_BUFFER_SIZE) as outfile:
 				for item in it:
 					print >>outfile, item
-						
+			self._lines = None
+			self.mv_from_tmp()
 
-	def read(self, tmp=False):
-		if self._lazy_lines_exist:
-			self._lazy_lines_exist = False
-			return self._lazy_lines
 
+	def read(self):
+		if self._lines is None:
+			return codecs.open(self.path, mode='r', encoding=ENCODING,
+					   errors='strict', buffering=IO_BUFFER_SIZE)
 		else:
-			if tmp:
-				filename = self.tmppath
-			else:
-				filename = self.path
-			# we can rely on garbage collection to close this file appropriately
-			return codecs.open(filename, mode='r', encoding=ENCODING, 
-				       errors='strict', buffering=IO_BUFFER_SIZE) 
-
+			return self._lines
 		
 	def setheader(self, *x): 
 		self.header = x
@@ -206,27 +193,23 @@ class LineFile(object):
 		# make sure these are *decreasing* so we can delete in order
 		cols = sorted(listifnot(self.to_column_number(cols)), reverse=True)
 		
-		self.mv_tmp()
-		lines = self.lines(parts=True)
-		def generate_deleted(lines=lines):
+		def generate_deleted(lines):
 			for parts in lines:
 				for c in cols: 
 					del parts[c]
 				yield "\t".join(parts)
 		
-		self.write(generate_deleted())
+		self.write(generate_deleted(self.lines(parts=True)))
 
 		# and delete from the header
 		if self.header is not None:
 			for c in cols: del self.header[c]
 
-		if CLEAN_TMP:
-			self.rm_tmp()
-		
 		
 	def copy(self, path=None):
 		
-		if path is None: path = self.get_new_path() # make a new path if its not specified
+		if path is None: 
+			   path = self.get_new_path() # make a new path if its not specified
 		
 		# we can just copy the file by treating it as one of the "files"
 		# and then use this new path, not the old one!
@@ -245,8 +228,13 @@ class LineFile(object):
 			Move myself to my temporary file, so that I can cat to my self.path
 		"""
 		#print "# >>", self.path, self.tmppath
-		if not self._lazy_lines_exist:
-			shutil.move(self.path, self.tmppath)
+		shutil.move(self.path, self.tmppath)
+
+	def mv_from_tmp(self):
+		"""
+		        Move myself from self.tmppath to self.path.
+		"""
+		shutil.move(self.tmppath, self.path)
 			
 		
 	def rename(self, n):
@@ -281,8 +269,16 @@ class LineFile(object):
 			return [ dtype[i](parts[x]) for i,x in enumerate(keys)]
 		else: 
 			return [ dtype(parts[x]) for x in keys ]
-			
 
+	def filter(self, fn, parts=False):
+		""" Keep only lines where the function returns True. """
+		filtered = itertools.ifilter(fn, self.lines(parts=parts))
+		self.write(filtered)
+
+	def map(self, fns, parts=False):
+		""" Apply function to all lines. """
+		mapped = itertools.imap(fn, self.lines(parts=parts))
+		self.write(mapped)
 		
 	def clean(self, columns=None, lower=True, alphanumeric=True, count_columns=True, nounderscores=True, echo_toss=False, filter_fn=None, modifier_fn=None,
 		  lazy=False):
@@ -298,13 +294,10 @@ class LineFile(object):
 				filter_fn - User-provided boolean filtering function
 				modifier_fn - User-provided function to modify the line (downcase etc)
 		"""
-                self.mv_tmp()
-
-                lines = self.lines()
-                def generate_cleaned(columns=columns, lines=lines):
+                def generate_cleaned(lines, columns=columns):
                         toss_count = 0
                         total_count = 0
-                        for l in lines: # POINTER TROUBLE!
+                        for l in lines: 
                                 total_count += 1
                                 keep = True
 
@@ -358,10 +351,7 @@ class LineFile(object):
 
                         print >>sys.stderr, "# Clean tossed %i of %i lines, or %s percent" % (toss_count, total_count, str((toss_count/total_count) * 100))
 
-                self.write(generate_cleaned(), lazy=lazy)
-
-                if CLEAN_TMP:
-                        self.rm_tmp()
+                self.write(generate_cleaned(self.lines()), lazy=lazy)
 
 
 	def restrict_vocabulary(self, cols, vocabulary, invert=False):
@@ -374,9 +364,7 @@ class LineFile(object):
 
                 vocabulary = set(vocabulary)
 
-                self.mv_tmp()
-                lines = self.lines()
-                def generate_restricted(lines=lines):
+                def generate_restricted(lines):
                         for l in lines:
                                 parts = l.split()
                                 keep = True
@@ -387,11 +375,8 @@ class LineFile(object):
                                 if keep:
                                         yield l
 
-                self.write(generate_restricted())
+                self.write(generate_restricted(self.lines()))
 
-                if CLEAN_TMP:
-                        self.rm_tmp()
-	
 	def make_marginal_column(self, newname, keys, sumkey, lazy=False):
 		self.copy_column(newname, sumkey, lazy=True)
 		self.sort(keys)
@@ -405,13 +390,10 @@ class LineFile(object):
                 keys    = listifnot(self.to_column_number(keys))
                 sumkeys = listifnot(self.to_column_number(sumkeys))
 
-                if assert_sorted: # must call before we mv_tmp
+                if assert_sorted: 
                         self.assert_sorted(keys,  allow_equal=True)
 
-                self.mv_tmp()
-
-                groups = self.groupby(keys)
-                def generate_resummed(groups=groups):
+                def generate_resummed(groups):
                         for compkey, lines in groups:
                                 if keep_all:
                                         lines = list(lines) # load into memory; otherwise we can only iterate through once
@@ -432,9 +414,7 @@ class LineFile(object):
                                                 parts[sumkey] = str(sums[sumkey]) # "parts" is the last line
                                         yield "\t".join(parts)
 
-                self.write(generate_resummed(), lazy=lazy)
-                if CLEAN_TMP:
-                        self.rm_tmp()		
+                self.write(generate_resummed(self.groupby(keys)), lazy=lazy)
 		
 	def assert_sorted(self, keys, dtype=unicode, allow_equal=False):
 		"""
@@ -445,7 +425,7 @@ class LineFile(object):
 		keys = self.to_column_number(keys)
 	
 		prev_sortkey = None
-		for line in self.lines(tmp=False):
+		for line in self.lines():
 			line = line.strip()
 			sortkey = self.extract_columns(line, keys=keys, dtype=dtype) # extract_columns gives them back tab-sep, but we need to cast them
 			
@@ -463,7 +443,7 @@ class LineFile(object):
 
         def head(self, n=10):
 		print self.header
-                lines = self.lines(tmp=False)
+                lines = self.lines()
                 for _ in xrange(n):
                         print next(lines)
 
@@ -482,23 +462,17 @@ class LineFile(object):
 
 	def copy_column(self, newname, key, lazy=False):
 		""" Copy a column. """
-                self.mv_tmp()
-
                 key = self.to_column_number(key)
 
-                lines = self.lines()
-                def generate_new_col(lines=lines):
+                def generate_new_col(lines):
                         for line in lines:
                                 parts = line.split()
                                 yield line+"\t"+parts[key]
 
 		self.header.extend(listifnot(newname))
 
-                self.write(generate_new_col(), lazy=lazy)
+                self.write(generate_new_col(self.lines()), lazy=lazy)
 
-                if CLEAN_TMP:
-                        self.rm_tmp()
-		
 	def make_column(self, newname, function, keys, lazy=False):
 		"""
 			Make a new column as some function of the other rows
@@ -511,23 +485,17 @@ class LineFile(object):
 			function - a function of other row arguments. Must return strings
 			args - column names to get the arguments
 		"""
-                self.mv_tmp()
-
                 keys = listifnot( self.to_column_number(keys) )
 
-                lines = self.lines()
-                def generate_new_col(lines=lines):
+                def generate_new_col(lines):
                         for line in lines:
                                 parts = line.split()
                                 yield line+"\t"+function(*[parts[i] for i in keys])
 
 		self.header.extend(listifnot(newname))
 
-                self.write(generate_new_col(), lazy=lazy)
+                self.write(generate_new_col(self.lines()), lazy=lazy)
 
-                if CLEAN_TMP:
-                        self.rm_tmp()
-		
 	def sort(self, keys, num_lines=SORT_DEFAULT_LINES, dtype=unicode, reverse=False):
 		"""
 			Sort me by my keys. this breaks the file up into subfiles of "lines", sorts them in RAM, 
@@ -539,8 +507,6 @@ class LineFile(object):
 			dtype - the type of the data to be sorted. Should be a castable python type
 			        e.g. str, int, float
 		"""
-		self.mv_tmp()
-		
 		temp_id = 0
 		sorted_tmp_files = [] # a list of generators, yielding each line of the file
 		
@@ -577,9 +543,6 @@ class LineFile(object):
 		for f in sorted_tmp_files: 
 			os.remove(f)
 		
-		if CLEAN_TMP: 
-			self.rm_tmp()
-		
 	def merge(self, other, keys1, tocopy, keys2=None, newheader=None, assert_sorted=True):
 		"""
 			Copy lines of other that match on keys onto self
@@ -605,15 +568,13 @@ class LineFile(object):
 			self.assert_sorted(keys1,  allow_equal=True) # we can have repeat lines
 			other.assert_sorted(keys2, allow_equal=False) # we cannot have repeat lines (how would they be mapped?)
 		
-		self.mv_tmp()
-		
-		in1 = self.read(tmp=True)
-		in2 = other.read(tmp=False)
+		in1 = self.lines()
+		in2 = other.lines()
 		
 		line1, parts1, key1 = read_and_parse(in1, keys=keys1)
 		line2, parts2, key2 = read_and_parse(in2, keys=keys2)
 
-		def generate_merged(in1=in1, in2=in2):
+		def generate_merged(in1, in2):
 			while True:
 				if key1 == key2:
 					yield line1+"\t"+"\t".join(self.extract_columns(line2, keys=tocopy))
@@ -628,14 +589,11 @@ class LineFile(object):
 						print >>sys.stderr, "\t", line1
 						print >>sys.stderr, "\t", line2
 						exit(1)
-		self.write(generate_merged())
+		self.write(generate_merged(in1, in2))
 		
 		#update the headers
 		self.header.extend([other.header[i] for i in tocopy ]) # copy the header names from other
 		
-		if CLEAN_TMP: 
-			self.rm_tmp()
-	
 	def print_conditional_entropy(self, W, cntXgW, downsample=10000, assert_sorted=True, pre="", preh="", header=True):
 		"""
 			Print the entropy H[X | W] for each W, assuming sorted by W.
@@ -691,7 +649,7 @@ class LineFile(object):
 		if assert_sorted:
 			self.assert_sorted(listifnot(W),  allow_equal=True)
 		
-		for word, lines in self.groupby(W, tmp=False):
+		for word, lines in self.groupby(W):
 			word = word[0] # word comes out as (word,)
 			if transcribe_fn:
 				word = transcribe_fn(word)
@@ -716,7 +674,7 @@ class LineFile(object):
 	#################################################################################################
 	# Iterators
 	
-	def lines(self, tmp=True, parts=False):
+	def lines(self, parts=False):
 		"""
 			Yield me a stripped version of each line of tmplines
 			
@@ -724,25 +682,25 @@ class LineFile(object):
 			- parts - if true, we return an array that is split on tabs
 		"""
 		if parts:
-			return (line.strip().split() for line in self.read(tmp=tmp))
+			return (line.strip().split() for line in self.read())
 		else:
-			return (line.strip() for line in self.read(tmp=tmp))
+			return (line.strip() for line in self.read())
 
-	def groupby(self, keys, tmp=True):
+	def groupby(self, keys):
 		"""
                        A groupby iterator matching the given keys.
 
                 """
                 keys = listifnot(self.to_column_number(keys))
                 key_fn = lambda parts: tuple(parts[x] for x in keys)
-                return itertools.groupby(self.lines(parts=True, tmp=tmp), key_fn)
+                return itertools.groupby(self.lines(parts=True), key_fn)
 		
 	def __len__(self):
 		"""
 			How many total lines?
 		"""
 		i = -1
-		for i, _ in enumerate(self.lines(tmp=False)):
+		for i, _ in enumerate(self.lines()):
 			pass
 		return i+1
 		
@@ -754,12 +712,10 @@ class LineFile(object):
 			NOTE: N must fit into memory
 		"""
 		
-		self.mv_tmp()
-		
 		# We'll use a reservoir sampling algorithm
 		sample = []
 		
-		for idx, line in enumerate(self.lines(tmp=True)):
+		for idx, line in enumerate(self.lines()):
 			if idx < N: 
 				sample.append(line)
 			else:
@@ -769,10 +725,10 @@ class LineFile(object):
 		# now output the sample
 		self.write(sample)
 	
-	def sum_column(self, col, cast=int, tmp=True):
+	def sum_column(self, col, cast=int):
 		
 		col = self.to_column_number(col)
-		return sum(cast(parts[col]) for parts in self.lines(parts=True, tmp=tmp))
+		return sum(cast(parts[col]) for parts in self.lines(parts=True))
 		
 	def downsample_tokens(self, N, ccol, keep_zero_counts=False):
 		"""
@@ -789,13 +745,10 @@ class LineFile(object):
 		self.header.extend(ccol)
 		ccol = self.to_column_number(ccol)
 		
-		self.mv_tmp()
+		Z = self.sum_column(ccol)
 		
-		Z = self.sum_column(ccol, tmp=True)
-		
-		lines = self.lines(parts=True, tmp=True)
-		def generate_downsampled(lines=lines):
-			for parts in self.lines(parts=True, tmp=True):
+		def generate_downsampled(lines):
+			for parts in lines:
 				
 				cnt = int(parts[ccol]) 
 			
@@ -814,6 +767,4 @@ class LineFile(object):
 				if keep_zero_counts or newcnt > 0:
 					yield '\t'.join(parts)
 			
-		self.write(generate_downsampled())
-
-
+		self.write(generate_downsampled(self.lines(parts=True)))

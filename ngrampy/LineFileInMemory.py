@@ -95,54 +95,17 @@ class LineFileInMemory(LineFile):
 			self.header = header
 
 	def write(self, it, tmp=False, lazy=False):
-		if not lazy:
-			it = list(it)
-		if tmp:
-			self._tmplines = it
-		else:
+		if lazy:
 			self._lines = it
-
-	def read(self, tmp=False):
-		if tmp:
-			return iter(self._tmplines)
 		else:
-			return iter(self._lines)
+			self._lines = list(it)
+
+	def read(self):
+		return iter(self._lines)
 		
 	def copy(self, path=None):
 		return deepcopy(self)
 	
-	def get_new_path(self):
-		raise NotImplementedError
-			
-	def mv_tmp(self):
-		"""
-			Move contents of the primary list of lines to the tmp list of lines.
-		"""
-		self._tmplines = self._lines
-		self._lines = []
-		
-	def rename(self, n):
-		raise NotImplementedError
-		
-	def rm_tmp(self):
-		"""
-			Delete the temporary list of lines.
-		"""
-		self._tmplines = []
-
-	def cp(self, f): 
-		raise NotImplementedError
-		
-	def cat(self): 
-		raise NotImplementedError
-
-	def delete(self):
-		self._lines = []
-		self._tmplines = []
-
-	def delete_tmp(self):
-		self._tmplines = []
-
 	def sort(self, keys, lines=None, dtype=unicode, reverse=False):
 		"""
 			Sort me by my keys.
@@ -158,7 +121,7 @@ class LineFileInMemory(LineFile):
 			sort_key.append(l) # the second element is the line
 			return sort_key
 
-		self.write(sorted(self.lines(tmp=False), key=get_sort_key))
+		self.write(sorted(self.lines(), key=get_sort_key))
 
 		
 	def __len__(self):
