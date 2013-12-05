@@ -94,7 +94,9 @@ class LineFileInMemory(LineFile):
 		else:
 			self.header = header
 
-	def write(self, it, tmp=False, lazy=False):
+	def write(self, it=None, tmp=False, lazy=False):
+		if it is None:
+			it = self._lines
 		if lazy:
 			self._lines = it
 		else:

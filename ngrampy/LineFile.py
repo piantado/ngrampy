@@ -134,18 +134,18 @@ class LineFile(object):
 
 		self._lines = None
 
-	def write(self, it, lazy=False):
+	def write(self, it=None, lazy=False):
+		if it is None:
+			it = self._lines
 		if lazy:
 			self._lines = it
 		else:
-			filename = self.tmppath
 			with codecs.open(self.tmppath, mode='w', encoding=ENCODING, 
 				 errors='strict', buffering=IO_BUFFER_SIZE) as outfile:
 				for item in it:
 					print >>outfile, item
 			self._lines = None
 			self.mv_from_tmp()
-
 
 	def read(self):
 		if self._lines is None:
@@ -188,7 +188,7 @@ class LineFile(object):
 		exit(1)
 			
 		
-	def delete_columns(self, cols):
+	def delete_columns(self, cols, lazy=False):
 		
 		# make sure these are *decreasing* so we can delete in order
 		cols = sorted(listifnot(self.to_column_number(cols)), reverse=True)
@@ -199,7 +199,7 @@ class LineFile(object):
 					del parts[c]
 				yield "\t".join(parts)
 		
-		self.write(generate_deleted(self.lines(parts=True)))
+		self.write(generate_deleted(self.lines(parts=True)), lazy=True)
 
 		# and delete from the header
 		if self.header is not None:
@@ -270,15 +270,17 @@ class LineFile(object):
 		else: 
 			return [ dtype(parts[x]) for x in keys ]
 
-	def filter(self, fn, parts=False):
+	def filter(self, fn, parts=False, as_dict=False, lazy=False):
 		""" Keep only lines where the function returns True. """
-		filtered = itertools.ifilter(fn, self.lines(parts=parts))
-		self.write(filtered)
+		lines = self.lines(parts=parts, as_dict=as_dict)
+		filtered = itertools.ifilter(fn, lines)
+		self.write(filtered, lazy=lazy)
 
-	def map(self, fn, parts=False):
+	def map(self, fn, parts=False, as_dict=False, lazy=False):
 		""" Apply function to all lines. """
-		mapped = itertools.imap(fn, self.lines(parts=parts))
-		self.write(mapped)
+		lines = self.lines(parts=parts, as_dict=as_dict)
+		mapped = itertools.imap(fn, lines)
+		self.write(mapped, lazy=lazy)
 		
 	def clean(self, columns=None, lower=True, alphanumeric=True, count_columns=True, nounderscores=True, echo_toss=False, filter_fn=None, modifier_fn=None,
 		  lazy=False):
@@ -294,67 +296,54 @@ class LineFile(object):
 				filter_fn - User-provided boolean filtering function
 				modifier_fn - User-provided function to modify the line (downcase etc)
 		"""
-                def generate_cleaned(lines, columns=columns):
-                        toss_count = 0
-                        total_count = 0
-                        for l in lines: 
-                                total_count += 1
-                                keep = True
+		def filter_alphanumeric(line):
+			collapsed = re_collapser.sub("", line)
+			collapsed = re_sentence_boundary.sub("", collapsed)
+			char_categories = (unicodedata.category(k) for k in collapsed)
+			return all(n == "Ll" or n == "Lu" for n in char_categories)
 
-                                if filter_fn and not filter_fn(l):
-                                        keep = False
-                                        if echo_toss:
-                                                print >>sys.stderr, "# Tossed filtered line:", l
-                                        toss_count += 1
-                                        continue
+		def generate_filtered_columns(lines, columns=columns):
+			for line in lines:
+				cols = line.split()
+				cn = len(cols)
+				if columns is None:
+					columns = cn # save the first line
 
-                                if alphanumeric: # if we require alphanumeric
-                                        collapsed = re_collapser.sub("", l) # replace digits and spaces with nothing so allw e have are characters
-					collapsed = re_sentence_boundary.sub("", collapsed)
-                                        for k in collapsed:
-                                                n = unicodedata.category(k)
-                                                if n == "Ll" or n == "Lu": pass
-                                                else:
-                                                        toss_count+=1
-                                                        keep = False # throw out lines with non-letter categories
-                                                        if echo_toss:
-                                                                print >>sys.stderr, "# Tossed line that was non-alphanumeric:", l
-                                                        break
+				if not (columns != cn or any(not non_whitespace_matcher.search(ci) for ci in cols)):
+					yield line
+				elif echo_toss:
+					print >>sys.stderr, "Tossed line with bad column count: %s" % line
 
-                                if not keep:
-                                        continue # we can skip early here if we want
+		def echo_toss_wrapper(fn):
+			def wrapper(x):
+				result = fn(x)
+				if not result:
+					print >>sys.stderr, "Tossed line: %s" % x
+				return result
+			return wrapper
 
-                                # check the number of columns
-                                if count_columns:
-                                        cols = l.split()
-                                        cn = len(cols)
-                                        if columns is None:
-                                                columns = cn # save the first line
+		if echo_toss:
+			if filter_fn:
+				filter_fn = echo_toss_wrapper(filter_fn)
+			filter_alphanumeric = echo_toss_wrapper(filter_alphanumeric)
 
-                                        if columns != cn or any(not non_whitespace_matcher.search(ci) for ci in cols):
-                                                keep = False
-                                                toss_count+=1
-                                                if echo_toss: print >>sys.stderr, "# Tossed line with bad column count (",cn,"):", l
+		if filter_fn:
+			self.filter(filter_fn, lazy=True)
+		if alphanumeric:
+			self.filter(filter_alphanumeric, lazy=True)
+		if count_columns:
+			self.write(generate_filtered_columns(self.lines()), lazy=True)
+		if nounderscores:
+			self.map(lambda line: re_underscore.sub("", line), lazy=True)
+		if lower:
+			self.map(lambda line: line.lower(), lazy=True)
+		if modifier_fn:
+			self.map(modifier_fn, lazy=True)
+		
+		if not lazy:
+			self.write()
 
-                                # and print if we should keep it
-                                if keep:
-
-                                        # clean up according to specs
-                                        if nounderscores:
-                                                l = re_underscore.sub("", l)
-                                        if lower:
-                                                l = l.lower()
-                                        if modifier_fn:
-                                                l = modifier_fn(l)
-
-                                        yield l
-
-                        print >>sys.stderr, "# Clean tossed %i of %i lines, or %s percent" % (toss_count, total_count, str((toss_count/total_count) * 100))
-
-                self.write(generate_cleaned(self.lines()), lazy=lazy)
-
-
-	def restrict_vocabulary(self, cols, vocabulary, invert=False):
+	def restrict_vocabulary(self, cols, vocabulary, invert=False, lazy=False):
 		"""
 			Make a new version where "cols" contain only words matching the vocabulary
 			OR if invert=True, throw out anything matching cols
@@ -364,18 +353,17 @@ class LineFile(object):
 
                 vocabulary = set(vocabulary)
 
-                def generate_restricted(lines):
-                        for l in lines:
-                                parts = l.split()
-                                keep = True
-                                for c in cols: # for each thing to check, check it!
-                                        if (parts[c] in vocabulary) is invert:
-                                                keep = False
-                                                break
-                                if keep:
-                                        yield l
+		def restrict(line, cols=cols, vocabulary=vocabulary):
+			parts = line.split()
+			keep = True
+			for c in cols:
+				if parts[c] in vocabulary:
+					keep = invert
+					break
+				if keep:
+					return l
 
-                self.write(generate_restricted(self.lines()))
+		self.map(restrict, lazy=lazy)
 
 	def make_marginal_column(self, newname, keys, sumkey, lazy=False):
 		self.copy_column(newname, sumkey, lazy=True)
@@ -414,7 +402,8 @@ class LineFile(object):
                                                 parts[sumkey] = str(sums[sumkey]) # "parts" is the last line
                                         yield "\t".join(parts)
 
-                self.write(generate_resummed(self.groupby(keys)), lazy=lazy)
+		groups = self.groupby(keys)
+		self.write(generate_resummed(groups), lazy=lazy)
 		
 	def assert_sorted(self, keys, dtype=unicode, allow_equal=False):
 		"""
@@ -437,7 +426,6 @@ class LineFile(object):
 			
 			prev_sortkey = sortkey
 	
-
 	def cat(self): 
 		systemcall("cat "+self.path)
 
@@ -464,14 +452,12 @@ class LineFile(object):
 		""" Copy a column. """
                 key = self.to_column_number(key)
 
-                def generate_new_col(lines):
-                        for line in lines:
-                                parts = line.split()
-                                yield line+"\t"+parts[key]
+		def new_col(line, key=key):
+			parts = line.split()
+			return "\t".join([line, parts[key]])
 
 		self.header.extend(listifnot(newname))
-
-                self.write(generate_new_col(self.lines()), lazy=lazy)
+		self.map(new_col, lazy=lazy)
 
 	def make_column(self, newname, function, keys, lazy=False):
 		"""
@@ -487,14 +473,12 @@ class LineFile(object):
 		"""
                 keys = listifnot( self.to_column_number(keys) )
 
-                def generate_new_col(lines):
-                        for line in lines:
-                                parts = line.split()
-                                yield line+"\t"+function(*[parts[i] for i in keys])
+		def new_col(line, function=function, keys=keys):
+			parts = line.split()
+			return "\t".join([line, function(*[parts[i] for i in keys])])
 
 		self.header.extend(listifnot(newname))
-
-                self.write(generate_new_col(self.lines()), lazy=lazy)
+		self.map(new_col, lazy=lazy)
 
 	def sort(self, keys, num_lines=SORT_DEFAULT_LINES, dtype=unicode, reverse=False):
 		"""
@@ -674,14 +658,19 @@ class LineFile(object):
 	#################################################################################################
 	# Iterators
 	
-	def lines(self, parts=False):
+	def lines(self, parts=False, as_dict=False):
 		"""
 			Yield me a stripped version of each line of tmplines
 			
-			- tmp -- do we iterate over path or tmp?
 			- parts - if true, we return an array that is split on tabs
+			- as_dict - if true, return dictionaries of field names
+			          to values. Takes precedence over "parts". 
+
 		"""
-		if parts:
+		if as_dict:
+			return (dict(zip(self.header, line.strip().split())) 
+				for line in self.read())
+		elif parts:
 			return (line.strip().split() for line in self.read())
 		else:
 			return (line.strip() for line in self.read())
@@ -725,8 +714,7 @@ class LineFile(object):
 		# now output the sample
 		self.write(sample)
 	
-	def sum_column(self, col, cast=int):
-		
+	def sum_column(self, col, cast=int):		
 		col = self.to_column_number(col)
 		return sum(cast(parts[col]) for parts in self.lines(parts=True))
 		
@@ -766,5 +754,5 @@ class LineFile(object):
 				
 				if keep_zero_counts or newcnt > 0:
 					yield '\t'.join(parts)
-			
+
 		self.write(generate_downsampled(self.lines(parts=True)))
