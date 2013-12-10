@@ -135,19 +135,49 @@ class LineFile(object):
 		self._lines = None
 
 	def write(self, it=None, lazy=False):
+		""" Write
+
+		Write the lines in an iterable to the LineFile.
+
+		If no iterable is provided, just write the current lines
+		to the LineFile. 
+
+		If lazy, then delay actually evaluating the iterable and
+		writing it to file. 
+
+		WARNING! If you specify lazy=True, then you can only read()
+		those lines once! If you need to read lines more than once,
+		you need to do lazy=False and write the lines to the file. 
+
+		If you know that there are lazy lines and need to write them
+		to the file, do G.write(lazy=False).
+		
+		Lazy iterators can be chained into efficient pipelines.
+
+		"""
 		if it is None:
-			it = self._lines
+			it = self.read()
 		if lazy:
 			self._lines = it
 		else:
+			# Write lines to tmppath (note it used to be the other way around!)
 			with codecs.open(self.tmppath, mode='w', encoding=ENCODING, 
 				 errors='strict', buffering=IO_BUFFER_SIZE) as outfile:
 				for item in it:
 					print >>outfile, item
+
 			self._lines = None
+
+			# And move tmppath to path
 			self.mv_from_tmp()
 
 	def read(self):
+		""" Read
+
+		Return the current lines of the LineFile, whether from
+		a file or from a lazy iterator.
+
+		"""
 		if self._lines is None:
 			return codecs.open(self.path, mode='r', encoding=ENCODING,
 					   errors='strict', buffering=IO_BUFFER_SIZE)
@@ -168,14 +198,12 @@ class LineFile(object):
 			a whitespace separated string - returns an array of column numbers
 			an array - maps along and returns
 		 
-		"""
-		
+		"""		
 		if isinstance(x, int):    
 			return x
 		elif isinstance(x, list): 
 			return map(self.to_column_number, x)
 		elif isinstance(x, str): 
-		
 			if re_SPACE.search(x):  # if spaces, treat it as an array and map
 				return map(self.to_column_number, x.split())
 			
@@ -187,7 +215,6 @@ class LineFile(object):
 		print >>sys.stderr, "Invalid header name ["+x+"]", self.header
 		exit(1)
 			
-		
 	def delete_columns(self, cols, lazy=False):
 		
 		# make sure these are *decreasing* so we can delete in order
@@ -198,12 +225,13 @@ class LineFile(object):
 				for c in cols: 
 					del parts[c]
 				yield "\t".join(parts)
+			# and delete from the header, after deletion is complete
+			if self.header is not None:
+				for c in cols: 
+					del self.header[c]
 		
-		self.write(generate_deleted(self.lines(parts=True)), lazy=True)
+		self.write(generate_deleted(self.lines(parts=True)), lazy=lazy)
 
-		# and delete from the header
-		if self.header is not None:
-			for c in cols: del self.header[c]
 
 		
 	def copy(self, path=None):
@@ -270,16 +298,32 @@ class LineFile(object):
 		else: 
 			return [ dtype(parts[x]) for x in keys ]
 
-	def filter(self, fn, parts=False, as_dict=False, lazy=False):
+	def filter(self, fn, lazy=False, verbose=False):
 		""" Keep only lines where the function returns True. """
-		lines = self.lines(parts=parts, as_dict=as_dict)
-		filtered = itertools.ifilter(fn, lines)
+		if verbose:
+			def echo_wrapper(fn):
+				def wrapper(x, **kwargs):
+					result = fn(x, **kwargs)
+					print >>sys.stderr, "Tossed line:", x
+					return result
+				return wrapper
+			fn = echo_wrapper(fn)
+
+		filtered = itertools.ifilter(fn, self.lines())
 		self.write(filtered, lazy=lazy)
 
-	def map(self, fn, parts=False, as_dict=False, lazy=False):
+	def map(self, fn, lazy=False, verbose=False):
 		""" Apply function to all lines. """
-		lines = self.lines(parts=parts, as_dict=as_dict)
-		mapped = itertools.imap(fn, lines)
+		if verbose:
+			def echo_wrapper(fn):
+				def wrapper(x, **kwargs):
+					result = fn(x, **kwargs)
+					print >>sys.stderr, "%s => %s" % (str(x), str(result))
+					return result
+				return wrapper
+			fn = echo_wrapper(fn)
+
+		mapped = itertools.imap(fn, self.lines())
 		self.write(mapped, lazy=lazy)
 		
 	def clean(self, columns=None, lower=True, alphanumeric=True, count_columns=True, nounderscores=True, echo_toss=False, filter_fn=None, modifier_fn=None,
@@ -292,7 +336,6 @@ class LineFile(object):
 				count_columns - if True, we throw out rows that don't have the same number of columns as the first line
 				nounderscores - if True, we remove everything matchin _[^\s]\s -> " "
 				echo_toss - tell us who was removed
-				already_tabbed - if true, we know to split cols on tabs; otherwise whitespace
 				filter_fn - User-provided boolean filtering function
 				modifier_fn - User-provided function to modify the line (downcase etc)
 		"""
@@ -314,25 +357,15 @@ class LineFile(object):
 				elif echo_toss:
 					print >>sys.stderr, "Tossed line with bad column count: %s" % line
 
-		def echo_toss_wrapper(fn):
-			def wrapper(x):
-				result = fn(x)
-				if not result:
-					print >>sys.stderr, "Tossed line: %s" % x
-				return result
-			return wrapper
-
-		if echo_toss:
-			if filter_fn:
-				filter_fn = echo_toss_wrapper(filter_fn)
-			filter_alphanumeric = echo_toss_wrapper(filter_alphanumeric)
-
+		# Filters.
 		if filter_fn:
-			self.filter(filter_fn, lazy=True)
+			self.filter(filter_fn, lazy=True, verbose=echo_toss)
 		if alphanumeric:
-			self.filter(filter_alphanumeric, lazy=True)
+			self.filter(filter_alphanumeric, lazy=True, verbose=echo_toss)
 		if count_columns:
 			self.write(generate_filtered_columns(self.lines()), lazy=True)
+
+		# Maps.
 		if nounderscores:
 			self.map(lambda line: re_underscore.sub("", line), lazy=True)
 		if lower:
@@ -355,12 +388,10 @@ class LineFile(object):
 
 		def restrict(line, cols=cols, vocabulary=vocabulary):
 			parts = line.split()
-			keep = True
 			for c in cols:
-				if parts[c] in vocabulary:
-					keep = invert
-					break
-				if keep:
+				if invert and parts[c] not in vocabulary:
+					return l
+				elif parts[c] in vocabulary:
 					return l
 
 		self.map(restrict, lazy=lazy)
@@ -452,12 +483,13 @@ class LineFile(object):
 		""" Copy a column. """
                 key = self.to_column_number(key)
 
-		def new_col(line, key=key):
-			parts = line.split()
-			return "\t".join([line, parts[key]])
+		def generate_new_col(lines):
+			for line in lines:
+				parts = line.split()
+				yield "\t".join([line, parts[key]])
+			self.header.extend(listifnot(newname))
 
-		self.header.extend(listifnot(newname))
-		self.map(new_col, lazy=lazy)
+		self.write(generate_new_col(self.lines()), lazy=lazy)
 
 	def make_column(self, newname, function, keys, lazy=False):
 		"""
@@ -473,12 +505,13 @@ class LineFile(object):
 		"""
                 keys = listifnot( self.to_column_number(keys) )
 
-		def new_col(line, function=function, keys=keys):
-			parts = line.split()
-			return "\t".join([line, function(*[parts[i] for i in keys])])
+		def generate_new_col(lines):
+			for line in lines:
+				parts = line.split()
+				yield "\t".join([line, function(*[parts[i] for i in keys])])
+			self.header.extend(listifnot(newname))
 
-		self.header.extend(listifnot(newname))
-		self.map(new_col, lazy=lazy)
+		self.write(generate_new_col(self.lines()), lazy=lazy)
 
 	def sort(self, keys, num_lines=SORT_DEFAULT_LINES, dtype=unicode, reverse=False):
 		"""
@@ -573,10 +606,10 @@ class LineFile(object):
 						print >>sys.stderr, "\t", line1
 						print >>sys.stderr, "\t", line2
 						exit(1)
+			self.header.extend([other.header[i] for i in tocopy ]) # copy the header names from other
+
 		self.write(generate_merged(in1, in2))
 		
-		#update the headers
-		self.header.extend([other.header[i] for i in tocopy ]) # copy the header names from other
 		
 	def print_conditional_entropy(self, W, cntXgW, downsample=10000, assert_sorted=True, pre="", preh="", header=True):
 		"""
@@ -658,19 +691,14 @@ class LineFile(object):
 	#################################################################################################
 	# Iterators
 	
-	def lines(self, parts=False, as_dict=False):
+	def lines(self, parts=False):
 		"""
 			Yield me a stripped version of each line of tmplines
 			
 			- parts - if true, we return an array that is split on tabs
-			- as_dict - if true, return dictionaries of field names
-			          to values. Takes precedence over "parts". 
 
 		"""
-		if as_dict:
-			return (dict(zip(self.header, line.strip().split())) 
-				for line in self.read())
-		elif parts:
+		if parts:
 			return (line.strip().split() for line in self.read())
 		else:
 			return (line.strip() for line in self.read())

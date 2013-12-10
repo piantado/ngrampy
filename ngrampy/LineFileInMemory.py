@@ -8,12 +8,6 @@
     This is not the most efficient way to do this in-memory, but it provides
     compability with scripts written for the on-disk version.
 
-    Where possible, operations on files are replaced with analogous operations 
-    on the in-memory data structures. Instead of keeping a file in path and another 
-    file in tmppath, main data and temp data are stored in separate lists. But
-    these are not always used in the same places that the on-disk version uses
-    path and tmppath.
-
     Richard Futrell, 2013
     
     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -78,7 +72,6 @@ class LineFileInMemory(LineFile):
 
 		# load the files into memory
 		self._lines = []
-		self._tmp_lines = []
 		for f in files:
 			if f.endswith(".idf"): 
 				continue # skip the index files
