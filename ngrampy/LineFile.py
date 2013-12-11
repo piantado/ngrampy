@@ -538,9 +538,7 @@ class LineFile(object):
 		for chunk in chunks(self.lines(), num_lines):
 			sorted_tmp_path = self.path+".sorted."+str(temp_id)
 			with codecs.open(sorted_tmp_path, 'w', encoding=ENCODING) as outfile:
-				for line in sorted(chunk, key=get_sort_key):
-					print >>outfile, line
-				#print >>outfile, "\n".join(sorted(chunk, key=get_sort_key))
+				print >>outfile, "\n".join(sorted(chunk, key=get_sort_key))
 			sorted_tmp_files.append(sorted_tmp_path)
 			temp_id += 1
 		
