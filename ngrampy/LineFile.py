@@ -532,7 +532,7 @@ class LineFile(object):
 		# a generator to hand back lines of a file and keys for sorting
 		def yield_lines(f):
 			with codecs.open(f, "r", encoding=ENCODING) as infile:
-				for l in codecs.open(f, "r", encoding=ENCODING): 
+				for l in infile:
 					yield get_sort_key(l.strip())
 				
 		# Map a line to sort keys (e.g. respecting dtype, etc); 
