@@ -134,13 +134,10 @@ class LineFile(object):
 
 		self._lines = None
 
-	def write(self, it=None, lazy=False):
+	def write(self, it, lazy=False):
 		""" Write
 
 		Write the lines in an iterable to the LineFile.
-
-		If no iterable is provided, just write the current lines
-		to the LineFile. 
 
 		If lazy, then delay actually evaluating the iterable and
 		writing it to file. 
@@ -149,14 +146,9 @@ class LineFile(object):
 		those lines once! If you need to read lines more than once,
 		you need to do lazy=False and write the lines to the file. 
 
-		If you know that there are lazy lines and need to write them
-		to the file, do G.write(lazy=False).
-		
 		Lazy iterators can be chained into efficient pipelines.
 
 		"""
-		if it is None:
-			it = self.read()
 		if lazy:
 			self._lines = it
 		else:
@@ -165,8 +157,6 @@ class LineFile(object):
 				 errors='strict', buffering=IO_BUFFER_SIZE) as outfile:
 				for item in it:
 					print >>outfile, item
-
-			self._lines = None
 
 			# And move tmppath to path
 			self.mv_from_tmp()
@@ -182,7 +172,10 @@ class LineFile(object):
 			return codecs.open(self.path, mode='r', encoding=ENCODING,
 					   errors='strict', buffering=IO_BUFFER_SIZE)
 		else:
-			return self._lines
+			result = iter(self._lines)
+			self._lines = None # only allow the lazy iterator to be read once!!
+			return result
+
 		
 	def setheader(self, *x): 
 		self.header = x
@@ -304,7 +297,7 @@ class LineFile(object):
 			def echo_wrapper(fn):
 				def wrapper(x, **kwargs):
 					result = fn(x, **kwargs)
-					print >>sys.stderr, "Tossed line:", x
+					print >>sys.stderr, u"Tossed line:", x
 					return result
 				return wrapper
 			fn = echo_wrapper(fn)
@@ -318,7 +311,7 @@ class LineFile(object):
 			def echo_wrapper(fn):
 				def wrapper(x, **kwargs):
 					result = fn(x, **kwargs)
-					print >>sys.stderr, "%s => %s" % (str(x), str(result))
+					print >>sys.stderr, u"%s => %s" % (unicode(x), unicode(result))
 					return result
 				return wrapper
 			fn = echo_wrapper(fn)
@@ -374,7 +367,7 @@ class LineFile(object):
 			self.map(modifier_fn, lazy=True)
 		
 		if not lazy:
-			self.write()
+			self.write(self.lines())
 
 	def restrict_vocabulary(self, cols, vocabulary, invert=False, lazy=False):
 		"""
@@ -524,7 +517,6 @@ class LineFile(object):
 			dtype - the type of the data to be sorted. Should be a castable python type
 			        e.g. str, int, float
 		"""
-		temp_id = 0
 		sorted_tmp_files = [] # a list of generators, yielding each line of the file
 		
 		keys = listifnot(self.to_column_number(keys))
@@ -542,10 +534,13 @@ class LineFile(object):
 			sort_key.append(l) # the second element is the line
 			return sort_key
 		
+		temp_id = 0
 		for chunk in chunks(self.lines(), num_lines):
 			sorted_tmp_path = self.path+".sorted."+str(temp_id)
 			with codecs.open(sorted_tmp_path, 'w', encoding=ENCODING) as outfile:
-				print >>outfile, "\n".join(sorted(chunk, key=get_sort_key))
+				for line in sorted(chunk, key=get_sort_key):
+					print >>outfile, line
+				#print >>outfile, "\n".join(sorted(chunk, key=get_sort_key))
 			sorted_tmp_files.append(sorted_tmp_path)
 			temp_id += 1
 		

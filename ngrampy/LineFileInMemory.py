@@ -87,9 +87,7 @@ class LineFileInMemory(LineFile):
 		else:
 			self.header = header
 
-	def write(self, it=None, tmp=False, lazy=False):
-		if it is None:
-			it = self._lines
+	def write(self, it, lazy=False):
 		if lazy:
 			self._lines = it
 		else:
