@@ -78,4 +78,7 @@ def chunks(iterable, size):
 
 	"""
 	it = iter(iterable)
-	return iter(lambda it=it, size=size: tuple(islice(it, size)), ())
+	while True:
+		chunk = islice(it, None, size)
+		probe = next(chunk) # raises StopIteration if nothing's there
+		yield chain([probe], chunk)
