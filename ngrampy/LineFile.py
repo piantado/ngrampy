@@ -13,12 +13,9 @@
 	
 	TODO: 
 		- Make this so each function call etc. will output what it did
-		- Make a "separator" and make sure that all the relevant functions use this (instead of space)
 	NOTE:
 		- Column names cannot contain spaces. 
-		- do NOT change the printing to export funny, because then it will collapse characters to ascii in a bad way
 		
-	Steve Piantadosi 2012
 	Licensed under GPL 3.0
 	
 	This program is free software: you can redistribute it and/or modify
@@ -75,6 +72,8 @@ sys.stderr = codecs.getwriter(ENCODING)(sys.stderr)
 
 IO_BUFFER_SIZE = int(100e6) # approx size of input buffer 
 
+COLUMN_SEPARATOR = u"\t" # must be passed to string.split() or else empty columns are collapsed!
+
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 # # Class definition
 # # # # # # # # # # # # # # # # # s# # # # # # # # # # # # # # # # # # # # # # # # # # #
@@ -128,7 +127,7 @@ class LineFile(object):
 		self.tmppath = self.path+".tmp"
 		
 		if isinstance(header, str): 
-			self.header = header.split()
+			self.header = header.split(COLUMN_SEPARATOR)
 		else:
 			self.header = header
 
@@ -198,7 +197,7 @@ class LineFile(object):
 			return map(self.to_column_number, x)
 		elif isinstance(x, str): 
 			if re_SPACE.search(x):  # if spaces, treat it as an array and map
-				return map(self.to_column_number, x.split())
+				return map(self.to_column_number, x.split(" "))
 			
 			# otherwise, a single string so just find the header that equals it
 			for i, item in enumerate(self.header):
@@ -284,7 +283,7 @@ class LineFile(object):
 		if isinstance(keys, str): 
 			keys = listifnot(self.to_column_number(keys))
 		
-		parts = line.split()
+		parts = line.split(COLUMN_SEPARATOR)
 
 		if isinstance(dtype,list):
 			return [ dtype[i](parts[x]) for i,x in enumerate(keys)]
@@ -343,7 +342,7 @@ class LineFile(object):
 
 		def generate_filtered_columns(lines, columns=columns):
 			for line in lines:
-				cols = line.split()
+				cols = line.split(COLUMN_SEPARATOR)
 				cn = len(cols)
 				if columns is None:
 					columns = cn # save the first line
@@ -383,7 +382,7 @@ class LineFile(object):
                 vocabulary = set(vocabulary)
 
 		def restrict(line, cols=cols, vocabulary=vocabulary):
-			parts = line.split()
+			parts = line.split(COLUMN_SEPARATOR)
 			for c in cols:
 				if invert and parts[c] not in vocabulary:
 					return l
@@ -482,7 +481,7 @@ class LineFile(object):
 
 		def generate_new_col(lines):
 			for line in lines:
-				parts = line.split()
+				parts = line.split(COLUMN_SEPARATOR)
 				yield "\t".join([line, parts[key]])
 			self.header.extend(listifnot(newname))
 
@@ -504,7 +503,7 @@ class LineFile(object):
 
 		def generate_new_col(lines):
 			for line in lines:
-				parts = line.split()
+				parts = line.split(COLUMN_SEPARATOR)
 				yield "\t".join([line, function(*[parts[i] for i in keys])])
 			self.header.extend(listifnot(newname))
 
@@ -696,7 +695,7 @@ class LineFile(object):
 
 		"""
 		if parts:
-			return (line.strip().split() for line in self.read())
+			return (line.strip().split(COLUMN_SEPARATOR) for line in self.read())
 		else:
 			return (line.strip() for line in self.read())
 
