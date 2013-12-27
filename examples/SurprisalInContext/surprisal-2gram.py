@@ -12,7 +12,7 @@ import glob
 ASSERT_SORTED = True # if you want an extra check on sorting
 
 parser = argparse.ArgumentParser(description='Compute average surprisal from google style data')
-parser.add_argument('--in', dest='in', type=str, default="/home/piantado/Desktop/mit/Corpora/GoogleNGrams/3/*", nargs="?", help='The directory with google files (e.g. Google/3gms/')
+parser.add_argument('--in', dest='in', type=str, default="/home/piantado/Desktop/mit/Corpora/GoogleNGrams/2/*", nargs="?", help='The directory with google files (e.g. Google/3gms/')
 parser.add_argument('--path', dest='path', type=str, default="/tmp/GoogleSurprisal", nargs="?", help='Where the database file lives')
 args = vars(parser.parse_args())	
 

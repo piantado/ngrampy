@@ -12,12 +12,19 @@ re_SPACE = re.compile(r"\s", re.UNICODE) # for splitting on spaces, etc.
 re_underscore = re.compile(r"_[A-Za-z\-\_]+", re.UNICODE) # for filtering out numbers and whitespace
 re_collapser  = re.compile(r"[\d\s]", re.UNICODE) # for filtering out numbers and whitespace
 re_sentence_boundary = re.compile(r"</?S>", re.UNICODE)
+re_tagstartchar = re.compile(r"(\s|^)_", re.UNICODE) # underscores may be okay at the start of words
 non_whitespace_matcher = re.compile(r"[^\s]", re.UNICODE)
+
+PRINT_LOG = False # should we log each action?
 
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 # # Some helpful functions
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 
+def printlog(x):
+	if PRINT_LOG:
+		print >>sys.stderr, x
+		
 def read_and_parse(inn, keys):
                 """
                         Read a line and parse it by tabs, returning the line, the tab parts, and some columns

@@ -319,21 +319,24 @@ class LineFile(object):
 		mapped = itertools.imap(fn, self.lines())
 		self.write(mapped, lazy=lazy)
 		
-	def clean(self, columns=None, lower=True, alphanumeric=True, count_columns=True, nounderscores=True, echo_toss=False, filter_fn=None, modifier_fn=None,
-		  lazy=False):
+	def clean(self, columns=None, lower=True, alphanumeric=True, count_columns=True, nounderscores=True, echo_toss=False, filter_fn=None, modifier_fn=None, lazy=False):
 		"""
 			This does several things:
 				columns - how many cols should there be? If None, then we use the first line
 				lower - convert to lowercase
-				alphanumeric - toss lines with non-letter category characters (in unicode)
+				alphanumeric - toss lines with non-letter category characters (in unicode). WARNING: Tosses lines with "_" (e.g. syntactic tags in google)
 				count_columns - if True, we throw out rows that don't have the same number of columns as the first line
-				nounderscores - if True, we remove everything matchin _[^\s]\s -> " "
+				nounderscores - if True, we remove everything matching _[^\s]\s -> " " 
 				echo_toss - tell us who was removed
 				filter_fn - User-provided boolean filtering function
 				modifier_fn - User-provided function to modify the line (downcase etc)
+				
+			NOTE: filtering by alphanumeric allows underscores at the beginning of columns (as in google tags)
+			NOTE: nounderscores may remove columns if there is a column for tags (e.g. a column with _adv)
 		"""
 		def filter_alphanumeric(line):
-			collapsed = re_collapser.sub("", line)
+			collapsed = re_tagstartchar.sub("", line) # remove these so that tags don't cause us to toss lines. Must come before spaces removed
+			collapsed = re_collapser.sub("", collapsed)
 			collapsed = re_sentence_boundary.sub("", collapsed)
 			char_categories = (unicodedata.category(k) for k in collapsed)
 			return all(n == "Ll" or n == "Lu" for n in char_categories)
@@ -470,7 +473,8 @@ class LineFile(object):
 			pass # no temporary file exists
 
 	def delete_tmp(self):
-		os.remove(self.tmppath)
+		print >>sys.stderr, "*** delete_tmp now phased out! Please remove from code!"
+		#os.remove(self.tmppath)
 
 	def copy_column(self, newname, key, lazy=False):
 		""" Copy a column. """
