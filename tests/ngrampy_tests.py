@@ -14,7 +14,7 @@ except OSError:
     
 
 def test_basics():
-    G = LineFile("tests/smallcorpus.txt.bz2", header="foo bar baz qux", 
+    G = LineFile("tests/smallcorpus.txt.bz2", header="foo bar baz qux".split(), 
                  path="tests/tmp/testcorpus")
     assert_equal(G.header, "foo bar baz qux".split())
     assert_equal(G.files, ["tests/smallcorpus.txt.bz2"])
@@ -28,10 +28,10 @@ def test_basics():
 
     G_copy.mv_tmp()
     assert_equal(os.path.isfile(G_copy.path + ".tmp"), True)
-    G_copy.delete_tmp()
-    assert_equal(os.path.isfile(G_copy.path + ".tmp"), False)
+    #G_copy.delete_tmp()
+    #assert_equal(os.path.isfile(G_copy.path + ".tmp"), False)
 
-    G.make_column("quux", lambda x, y, z, w: "cat", "foo bar baz qux")
+    G.make_column("quux", lambda x, y, z, w: "cat", "foo bar baz qux".split())
     assert_equal(G.header, "foo bar baz qux quux".split())
     for line in G.lines(parts=False):
         assert_equal(G.extract_columns(line, "quux"), ["cat"])
@@ -50,7 +50,7 @@ def test_basics():
     assert_equal(os.path.isfile("tests/tmp/testcorpus"), False)
 
 def test_clean():
-    G = LineFile("tests/smallcorpus-malformed.txt.bz2", header="foo bar baz qux", 
+    G = LineFile("tests/smallcorpus-malformed.txt.bz2", header="foo bar baz qux".split(), 
                  path="tests/tmp/testcorpus")
     len_G = len(G)
     G.clean(columns=4, lower=False, alphanumeric=False, count_columns=True, 
@@ -58,20 +58,20 @@ def test_clean():
     assert_equal(len(G), len_G - 2)
     G.delete()
 
-    G = LineFile("tests/smallcorpus-malformed.txt.bz2", header="foo bar baz qux", 
+    G = LineFile("tests/smallcorpus-malformed.txt.bz2", header="foo bar baz qux".split(), 
                  path="tests/tmp/testcorpus")
     G.clean(lower=True, alphanumeric=True, count_columns=False, echo_toss=True)
     assert_equal(len(G), 8562)
     G.delete()
 
-    G = LineFile("tests/smallcorpus-malformed.txt.bz2", header="foo bar baz qux", 
+    G = LineFile("tests/smallcorpus-malformed.txt.bz2", header="foo bar baz qux".split(), 
                  path="tests/tmp/testcorpus")
     G.clean(lower=True, alphanumeric=True, count_columns=False, echo_toss=True,
             filter_fn=lambda x: False)
     assert_equal(len(G), 0)
     G.delete()
 
-    G = LineFile("tests/smallcorpus-malformed.txt.bz2", header="foo bar baz qux", 
+    G = LineFile("tests/smallcorpus-malformed.txt.bz2", header="foo bar baz qux".split(), 
                  path="tests/tmp/testcorpus")
     G.clean(lower=True, alphanumeric=False, count_columns=False, echo_toss=True,
             modifier_fn=lambda x: "hello")
@@ -82,7 +82,7 @@ def test_clean():
 
 
 def test_clean_lazy():
-    G = LineFile("tests/smallcorpus-malformed.txt.bz2", header="foo bar baz qux", 
+    G = LineFile("tests/smallcorpus-malformed.txt.bz2", header="foo bar baz qux".split(), 
                  path="tests/tmp/testcorpus")
     len_G = len(G)
     G.clean(columns=4, lower=False, alphanumeric=False, count_columns=True, 
@@ -90,20 +90,20 @@ def test_clean_lazy():
     assert_equal(len(G), len_G - 2)
     G.delete()
 
-    G = LineFile("tests/smallcorpus-malformed.txt.bz2", header="foo bar baz qux", 
+    G = LineFile("tests/smallcorpus-malformed.txt.bz2", header="foo bar baz qux".split(), 
                  path="tests/tmp/testcorpus")
     G.clean(lower=True, alphanumeric=True, count_columns=False, echo_toss=True, lazy=True)
     assert_equal(len(G), 8562)
     G.delete()
 
-    G = LineFile("tests/smallcorpus-malformed.txt.bz2", header="foo bar baz qux", 
+    G = LineFile("tests/smallcorpus-malformed.txt.bz2", header="foo bar baz qux".split(), 
                  path="tests/tmp/testcorpus")
     G.clean(lower=True, alphanumeric=True, count_columns=False, echo_toss=True,
             filter_fn=lambda x: False, lazy=True)
     assert_equal(len(G), 0)
     G.delete()
 
-    G = LineFile("tests/smallcorpus-malformed.txt.bz2", header="foo bar baz qux", 
+    G = LineFile("tests/smallcorpus-malformed.txt.bz2", header="foo bar baz qux".split(), 
                  path="tests/tmp/testcorpus")
     G.clean(lower=True, alphanumeric=False, count_columns=False, echo_toss=True,
             modifier_fn=lambda x: "hello", lazy=True)
@@ -112,7 +112,7 @@ def test_clean_lazy():
     G.delete()
 
 def test_resum_equal():
-    G = LineFile("tests/smallcorpus.txt.bz2", header="foo bar baz qux", 
+    G = LineFile("tests/smallcorpus.txt.bz2", header="foo bar baz qux".split(), 
                  path="tests/tmp/testcorpus")
     len_G = len(G)
     total = G.sum_column("qux")
@@ -122,7 +122,7 @@ def test_resum_equal():
         assert_equal(int(G.extract_columns(line, "qux")[0]), total)
     G.delete()
 
-    G = LineFile("tests/smallcorpus.txt.bz2", header="foo bar baz qux", 
+    G = LineFile("tests/smallcorpus.txt.bz2", header="foo bar baz qux".split(), 
                  path="tests/tmp/testcorpus")
     G.resum_equal("foo", "qux", assert_sorted=True, keep_all=True)
     assert_equal(len(G), len_G)
@@ -131,7 +131,7 @@ def test_resum_equal():
     G.delete()
 
 def test_resum_equal_lazy():
-    G = LineFile("tests/smallcorpus.txt.bz2", header="foo bar baz qux", 
+    G = LineFile("tests/smallcorpus.txt.bz2", header="foo bar baz qux".split(), 
                  path="tests/tmp/testcorpus")
     len_G = len(G)
     total = G.sum_column("qux")
@@ -140,7 +140,7 @@ def test_resum_equal_lazy():
         assert_equal(int(G.extract_columns(line, "qux")[0]), total)
     G.delete()
 
-    G = LineFile("tests/smallcorpus.txt.bz2", header="foo bar baz qux", 
+    G = LineFile("tests/smallcorpus.txt.bz2", header="foo bar baz qux".split(), 
                  path="tests/tmp/testcorpus")
     G.resum_equal("foo", "qux", assert_sorted=True, keep_all=True, lazy=True)
     for line in G.lines():
@@ -174,17 +174,17 @@ def test_unicode():
 
     scramblemap = {}
 
-    G = LineFile("tests/smallcorpus.txt.bz2", header="foo bar baz qux", 
+    G = LineFile("tests/smallcorpus.txt.bz2", header="foo bar baz qux".split(), 
                  path="tests/tmp/testcorpus")
     G.clean(lower=True, alphanumeric=False, count_columns=False, echo_toss=True, lazy=True)
-    G.make_marginal_column("quux", "foo bar", "qux", lazy=True)
+    G.make_marginal_column("quux", "foo bar".split(), "qux", lazy=True)
     G.sort("baz")
     len_G = len(G)
     sum_counts = G.sum_column("quux")
     sum_surprisal = math.fsum(line[2] for line in G.average_surprisal("baz", "qux", "quux", assert_sorted=True))
     G.delete()
 
-    G = LineFile("tests/smallcorpus.txt.bz2", header="foo bar baz qux", 
+    G = LineFile("tests/smallcorpus.txt.bz2", header="foo bar baz qux".split(), 
                  path="tests/tmp/testcorpus")
 
     def scramble(line):
@@ -198,11 +198,11 @@ def test_unicode():
                 words[i] = garbage
                 scramblemap[word] = garbage
 
-        return " ".join(words + [count])
+        return "\t".join(words + [count])
 
     G.clean(lower=True, alphanumeric=False, count_columns=False, echo_toss=True,
             modifier_fn=scramble)
-    G.make_marginal_column("quux", "foo bar", "qux")
+    G.make_marginal_column("quux", "foo bar".split(), "qux")
     G.sort("baz")
     sum_counts_scrambled = G.sum_column("quux")
     assert_equal(sum_counts, sum_counts_scrambled)
@@ -234,25 +234,25 @@ def test_basics_in_memory():
                      )
 
 def test_clean_in_memory():
-    G = LineFileInMemory("tests/smallcorpus-malformed.txt.bz2", header="foo bar baz qux", 
+    G = LineFileInMemory("tests/smallcorpus-malformed.txt.bz2", header="foo bar baz qux".split(), 
                  path="tests/tmp/testcorpus")
     len_G = len(G)
     G.clean(columns=4, lower=False, alphanumeric=False, count_columns=True, 
             nounderscores=False, echo_toss=True)
     assert_equal(len(G), len_G - 2)
 
-    G = LineFileInMemory("tests/smallcorpus-malformed.txt.bz2", header="foo bar baz qux", 
+    G = LineFileInMemory("tests/smallcorpus-malformed.txt.bz2", header="foo bar baz qux".split(), 
                  path="tests/tmp/testcorpus")
     G.clean(lower=True, alphanumeric=True, count_columns=False, echo_toss=True)
     assert_equal(len(G), 8562)
 
-    G = LineFileInMemory("tests/smallcorpus-malformed.txt.bz2", header="foo bar baz qux", 
+    G = LineFileInMemory("tests/smallcorpus-malformed.txt.bz2", header="foo bar baz qux".split(), 
                  path="tests/tmp/testcorpus")
     G.clean(lower=True, alphanumeric=True, count_columns=False, echo_toss=True,
             filter_fn=lambda x: False)
     assert_equal(len(G), 0)
 
-    G = LineFileInMemory("tests/smallcorpus-malformed.txt.bz2", header="foo bar baz qux", 
+    G = LineFileInMemory("tests/smallcorpus-malformed.txt.bz2", header="foo bar baz qux".split(), 
                  path="tests/tmp/testcorpus")
     G.clean(lower=True, alphanumeric=False, count_columns=False, echo_toss=True,
             modifier_fn=lambda x: "hello")
@@ -261,7 +261,7 @@ def test_clean_in_memory():
         assert_equal(line, "hello")
 
 def test_resum_equal_in_memory():
-    G = LineFileInMemory("tests/smallcorpus.txt.bz2", header="foo bar baz qux", 
+    G = LineFileInMemory("tests/smallcorpus.txt.bz2", header="foo bar baz qux".split(), 
                  path="tests/tmp/testcorpus")
     len_G = len(G)
     total = G.sum_column("qux")
@@ -270,7 +270,7 @@ def test_resum_equal_in_memory():
     for line in G.lines():
         assert_equal(int(G.extract_columns(line, "qux")[0]), total)
 
-    G = LineFileInMemory("tests/smallcorpus.txt.bz2", header="foo bar baz qux", 
+    G = LineFileInMemory("tests/smallcorpus.txt.bz2", header="foo bar baz qux".split(), 
                  path="tests/tmp/testcorpus")
     G.resum_equal("foo", "qux", assert_sorted=True, keep_all=True)
     assert_equal(len(G), len_G)
@@ -284,17 +284,17 @@ def test_unicode_in_memory():
 
     scramblemap = {}
 
-    G = LineFileInMemory("tests/smallcorpus.txt.bz2", header="foo bar baz qux", 
+    G = LineFileInMemory("tests/smallcorpus.txt.bz2", header="foo bar baz qux".split(), 
                  path="tests/tmp/testcorpus")
     G.clean(lower=True, alphanumeric=False, count_columns=False, echo_toss=True, lazy=True)
-    G.make_marginal_column("quux", "foo bar", "qux", lazy=True)
+    G.make_marginal_column("quux", "foo bar".split(), "qux", lazy=True)
     G.sort("baz")
     len_G = len(G)
     sum_counts = G.sum_column("quux")
     sum_surprisal = math.fsum(line[2] for line in G.average_surprisal("baz", "qux", "quux", assert_sorted=True))
 
 
-    G = LineFileInMemory("tests/smallcorpus.txt.bz2", header="foo bar baz qux", 
+    G = LineFileInMemory("tests/smallcorpus.txt.bz2", header="foo bar baz qux".split(), 
                  path="tests/tmp/testcorpus")
 
     def scramble(line):
@@ -308,11 +308,11 @@ def test_unicode_in_memory():
                 words[i] = garbage
                 scramblemap[word] = garbage
 
-        return " ".join(words + [count])
+        return "\t".join(words + [count])
 
     G.clean(lower=True, alphanumeric=False, count_columns=False, echo_toss=True,
             modifier_fn=scramble, lazy=True)
-    G.make_marginal_column("quux", "foo bar", "qux", lazy=True)
+    G.make_marginal_column("quux", "foo bar".split(), "qux", lazy=True)
     G.sort("baz")
     sum_counts_scrambled = G.sum_column("quux")
     assert_equal(sum_counts, sum_counts_scrambled)

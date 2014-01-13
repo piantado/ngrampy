@@ -132,6 +132,12 @@ class LineFile(object):
 			self.header = header
 
 		self._lines = None
+		self.preprocess()
+
+	def preprocess(self):
+		def fix_separators(line):
+			return COLUMN_SEPARATOR.join(line.split())
+		self.map(fix_separators)
 
 	def write(self, it, lazy=False):
 		""" Write
@@ -351,6 +357,7 @@ class LineFile(object):
 					yield line
 				elif echo_toss:
 					print >>sys.stderr, "Tossed line with bad column count: %s" % line
+					print >>sys.stderr, "Line has %d columns; I expected %d." % (cn, columns)
 
 		# Filters.
 		if filter_fn:
