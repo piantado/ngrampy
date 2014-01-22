@@ -302,7 +302,8 @@ class LineFile(object):
 			def echo_wrapper(fn):
 				def wrapper(x, **kwargs):
 					result = fn(x, **kwargs)
-					print >>sys.stderr, u"Tossed line:", x
+					if not result:
+						print >>sys.stderr, u"Tossed line due to %s:" % fn.__name__, x
 					return result
 				return wrapper
 			fn = echo_wrapper(fn)
@@ -719,10 +720,7 @@ class LineFile(object):
 		"""
 			How many total lines?
 		"""
-		i = -1
-		for i, _ in enumerate(self.lines()):
-			pass
-		return i+1
+		return sum(1 for _ in self.read())
 		
 	def subsample_lines(self, N=1000000):
 		"""
