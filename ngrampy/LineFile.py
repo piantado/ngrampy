@@ -117,6 +117,8 @@ class LineFile(object):
 					systemcall("gunzip -d -c "+f+" >> "+self.path)
 				elif f.endswith(".bz2"): 
 					systemcall("bzip2 -d -c "+f+" >> "+self.path)
+				elif f.endswith(".xz") or f.endswith(".lzma"):
+					systemcall("xz -d -c"+f+" >> "+self.path)
 				else:                       
 					systemcall("cat "+f+" >> "+self.path)
 		
