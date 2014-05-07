@@ -48,6 +48,7 @@ from math import log
 from collections import Counter
 from copy import deepcopy
 
+# handly numpy with pypy
 try:
 	import numpy
 except ImportError:

@@ -26,11 +26,13 @@ parser.add_argument('--in', dest='in', type=str, default=None, nargs="?", help='
 parser.add_argument('--out', dest='out', type=str, default="/tmp/", nargs="?", help='The file name for output (year appended)')
 parser.add_argument('--year-bin', dest='year-bin', type=int, default=10, nargs="?", help='How to bin the years')
 parser.add_argument('--quiet', dest='quiet', default=False, action="store_true", help='Output tossed lines?')
+parser.add_argument('--N',     dest='N', default=3, nargs="?", help="Order of the ngram")
 args = vars(parser.parse_args())
 
 YEAR_BIN = int(args['year-bin'])
 BUFSIZE = int(1e6) # We can allow huge buffers if we want...
 ENCODING = 'utf-8'
+LINE_N = int(args['N'])+3 # three extra columns
 
 prev_year,prev_ngram = None, None
 count = 0
@@ -48,13 +50,17 @@ cleanup_quotes = re.compile(r"(\")", re.U) # kill quotes
 tag_match = re.compile(r"^(.+?)(_[A-Z\_\-\.\,\;\:]+)?$", re.U) # match a tag at the end of words (assumes 
 def tagify(x):
 	"""
-		Take a word with a tag ("man_NOUN") and give back ("man","NOUN") with "NA" if the tag is not there
+		Take a word with a tag ("man_NOUN") and give back ("man","NOUN") with "NA" if the tag or word is not there
 	"""
-	m = re.match(tag_match, x)
+	m = tag_match.match(x)
 	if m:
 		g = m.groups()
-		if g[1] is None: return (g[0], "NA")
-		else:            return g
+
+		word = (g[0] if g[0] is not None else "NA")
+		tag  = (g[1] if g[1] is not None else "NA")
+		return (word,tag)
+		#if g[1] is None: return (g[0], "NA")
+		#else:            return g
 	else: return []
 
 def chain(args):
@@ -72,23 +78,25 @@ for f in glob.glob(args['in']):
 		
 		l = l.strip() ## To collapse case
 		l = cleanup_quotes.sub("", l)   # remove quotes
+		
 		#print >>sys.stderr, l
 		
 		#parts = column_splitter.split(l)
 		parts = l.split() # defaultly should handle splitting on whitespace, much friendlier with unicode
 		
-		# Our check on the number of parts -- we require everything to have as many as the frist line
-		if part_count is None: part_count = len(parts)
-		if len(parts) != part_count: 
-			if not args['quiet']: print "Wrong number of items on line: skiping ", l, parts
+		# Our check on the number of parts -- we require this to be passed in (otherwise it's hard to parse)
+		if len(parts) != LINE_N: 
+			if not args['quiet']: print "Wrong number of items on line: skiping ", l, parts, " IN FILE ", f
 			continue # skip this line if its garbage NOTE: this may mess up with some unicode chars?
-			
+		#print parts	
+		# parts[-1] is the number of books -- ignored here
 		c = int(parts[-2]) # the count
 		year = int(int(parts[-3]) / YEAR_BIN) * YEAR_BIN # round the year
 		ngram_ar = chain(map(tagify,parts[0:-3]))
-		if all([x != "NA" for x in ngram_ar]): # Chuck lines that don't have all things tagged
-			ngram = "\t".join(chain(map(tagify,parts[0:-3]))) # join everything else, including the tags separated out
-		else: continue
+		#print ngram_ar
+		#if all([x != "NA" for x in ngram_ar]): # Chuck lines that don't have all things tagged
+		#else: continue
+		ngram = "\t".join(chain(map(tagify,parts[0:-3]))) # join everything else, including the tags separated out
 		
 		# output if different
 		if year != prev_year or ngram != prev_ngram:
