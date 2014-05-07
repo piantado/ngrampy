@@ -118,6 +118,8 @@ class LineFile(object):
 					systemcall("gunzip -d -c "+f+" >> "+self.path)
 				elif f.endswith(".bz2"): 
 					systemcall("bzip2 -d -c "+f+" >> "+self.path)
+				elif f.endswith(".xz") or f.endswith(".lzma"):
+					systemcall("xz -d -c "+f+" >> "+self.path)
 				else:                       
 					systemcall("cat "+f+" >> "+self.path)
 		
@@ -133,6 +135,12 @@ class LineFile(object):
 			self.header = header
 
 		self._lines = None
+		self.preprocess()
+
+	def preprocess(self):
+		def fix_separators(line):
+			return COLUMN_SEPARATOR.join(line.split())
+		self.map(fix_separators)
 
 	def write(self, it, lazy=False):
 		""" Write
@@ -297,7 +305,8 @@ class LineFile(object):
 			def echo_wrapper(fn):
 				def wrapper(x, **kwargs):
 					result = fn(x, **kwargs)
-					print >>sys.stderr, u"Tossed line:", x
+					if not result:
+						print >>sys.stderr, u"Tossed line due to %s:" % fn.__name__, x
 					return result
 				return wrapper
 			fn = echo_wrapper(fn)
@@ -352,6 +361,7 @@ class LineFile(object):
 					yield line
 				elif echo_toss:
 					print >>sys.stderr, "Tossed line with bad column count: %s" % line
+					print >>sys.stderr, "Line has %d columns; I expected %d." % (cn, columns)
 
 		# Filters.
 		if filter_fn:
@@ -406,7 +416,7 @@ class LineFile(object):
                 sumkeys = listifnot(self.to_column_number(sumkeys))
 
                 if assert_sorted: 
-                        self.assert_sorted(keys,  allow_equal=True)
+                        self.assert_sorted(keys, allow_equal=True, lazy=True)
 
                 def generate_resummed(groups):
                         for compkey, lines in groups:
@@ -432,26 +442,31 @@ class LineFile(object):
 		groups = self.groupby(keys)
 		self.write(generate_resummed(groups), lazy=lazy)
 		
-	def assert_sorted(self, keys, dtype=unicode, allow_equal=False):
+	def assert_sorted(self, keys, dtype=unicode, allow_equal=False, lazy=False):
 		"""
 			Assert that a file is sorted by certain columns
 			This good for merging, etc., which optionally check requirements 
 			to be sorted
+
 		"""
-		keys = self.to_column_number(keys)
-	
-		prev_sortkey = None
-		for line in self.lines():
-			line = line.strip()
-			sortkey = self.extract_columns(line, keys=keys, dtype=dtype) # extract_columns gives them back tab-sep, but we need to cast them
+		def gen_assert_sorted(lines, keys=keys):
+			""" yield lines while asserted their sortedness """
+			keys = self.to_column_number(keys)
+			prev_sortkey = None
+			for line in lines:
+				line = line.strip()
+				yield line # yield all line and check afterwards
+				sortkey = self.extract_columns(line, keys=keys, dtype=dtype)
 			
-			if prev_sortkey is not None:
-				if allow_equal: 
-					myassert( prev_sortkey <= sortkey, line+";"+unicode(prev_sortkey)+";"+unicode(sortkey) )
+				if prev_sortkey is not None:
+					if allow_equal: 
+						myassert(prev_sortkey <= sortkey, line+";"+unicode(prev_sortkey)+";"+unicode(sortkey))
 				else:           
-					myassert( prev_sortkey < sortkey, line+";"+unicode(prev_sortkey)+";"+unicode(sortkey) )
+					myassert(prev_sortkey < sortkey, line+";"+unicode(prev_sortkey)+";"+unicode(sortkey))
 			
 			prev_sortkey = sortkey
+			
+		self.write(gen_assert_sorted(self.lines()), lazy=lazy)
 	
 	def cat(self): 
 		systemcall("cat "+self.path)
@@ -579,8 +594,8 @@ class LineFile(object):
 		
 		# this only works if we are sorted -- let's assert
 		if assert_sorted:
-			self.assert_sorted(keys1,  allow_equal=True) # we can have repeat lines
-			other.assert_sorted(keys2, allow_equal=False) # we cannot have repeat lines (how would they be mapped?)
+			self.assert_sorted(keys1,  allow_equal=True, lazy=True) # we can have repeat lines
+			other.assert_sorted(keys2, allow_equal=False, lazy=True) # we cannot have repeat lines (how would they be mapped?)
 		
 		in1 = self.lines()
 		in2 = other.lines()
@@ -606,8 +621,7 @@ class LineFile(object):
 			self.header.extend([other.header[i] for i in tocopy ]) # copy the header names from other
 
 		self.write(generate_merged(in1, in2))
-		
-		
+
 	def print_conditional_entropy(self, W, cntXgW, downsample=10000, assert_sorted=True, pre="", preh="", header=True):
 		"""
 			Print the entropy H[X | W] for each W, assuming sorted by W.
@@ -616,18 +630,16 @@ class LineFile(object):
 			downsample - also prints the downsampled measures, where we only have downsample counts total. An attempt to correct H bias
 		"""
 		if assert_sorted:
-			self.assert_sorted(listifnot(W),  allow_equal=True) # allow W to be true
+			self.assert_sorted(listifnot(W),  allow_equal=True, lazy=True) # allow W to be true
 			
 		
 		W = self.to_column_number(W)
-		assert(not isinstance(W,list))
+		assert not isinstance(W,list)
 		#Xcol = self.to_column_number(X)
-		#assert(not isinstance(X,list))
+		#assert not isinstance(X,list)
 		
 		cntXgW = self.to_column_number(cntXgW)
-		assert(not isinstance(cntXgW, list))
-		
-		if assert_sorted: self.assert_sorted(listifnot(W),  allow_equal=True)
+		assert not isinstance(cntXgW, list)
 		
 		prevW = None
 		if header: print preh+"Word\tFrequency\tContextCount\tContextEntropy\tContextEntropy2\tContextEntropy5\tContextEntropy10\tContextEntropy%i\tContextCount%i" % (downsample, downsample)
@@ -661,7 +673,7 @@ class LineFile(object):
 		assert(not isinstance(Ccnt,list))
 		
 		if assert_sorted:
-			self.assert_sorted(listifnot(W),  allow_equal=True)
+			self.assert_sorted(listifnot(W), allow_equal=True, lazy=True)
 		
 		for word, lines in self.groupby(W):
 			word = word[0] # word comes out as (word,)
@@ -713,10 +725,7 @@ class LineFile(object):
 		"""
 			How many total lines?
 		"""
-		i = -1
-		for i, _ in enumerate(self.lines()):
-			pass
-		return i+1
+		return sum(1 for _ in self.read())
 		
 	def subsample_lines(self, N=1000000):
 		"""
