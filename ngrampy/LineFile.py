@@ -94,7 +94,9 @@ class LineFile(object):
 		"""
 		if isinstance(files, str):
 			files = [files]
-
+		
+		assert len(files) > 0, "*** Must provide non-empty list of files!"
+		
 		if force_nocopy:
 			assert(len(files) == 1)
 			self.path = files[0]
@@ -435,8 +437,12 @@ class LineFile(object):
                                                         parts[sumkey] = str(sums[sumkey])
                                                 yield "\t".join(parts)
                                 else:
-                                        for sumkey in sumkeys:
-                                                parts[sumkey] = str(sums[sumkey]) # "parts" is the last line
+					try:
+						for sumkey in sumkeys:
+							parts[sumkey] = str(sums[sumkey]) # "parts" is the last line
+					except IndexError:
+						print >>sys.stderr, "IndexError:", parts, sumkeys
+						
                                         yield "\t".join(parts)
 
 		groups = self.groupby(keys)
